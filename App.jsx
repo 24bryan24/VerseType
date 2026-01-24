@@ -29,7 +29,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken }
 import { getFirestore, collection, addDoc, query, onSnapshot, deleteDoc, doc, updateDoc, serverTimestamp, orderBy, limit, getDocs, where } from 'firebase/firestore';
 
 // --- CONFIGURATION ---
-const ESV_API_KEY = "2e524054a71754facfb7f01d2a41452552d1b6a1";
+const ESV_API_KEY = "be4a8a6c93a524afa025790a3ed6fcfaea2431ec";
 const apiKey = ""; 
 
 const BIBLE_BOOKS = [
