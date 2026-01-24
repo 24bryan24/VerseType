@@ -30,7 +30,7 @@ import { getFirestore, collection, addDoc, query, onSnapshot, deleteDoc, doc, up
 
 // --- CONFIGURATION ---
 const ESV_API_KEY = "be4a8a6c93a524afa025790a3ed6fcfaea2431ec";
-const apiKey = ""; 
+const apiKey = "AIzaSyABvUeTbiXE9xgkqaT-gT7m3fJ-FTwpptI"; 
 
 const BIBLE_BOOKS = [
   "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua", "Judges", "Ruth", "1 Samuel", "2 Samuel", 
