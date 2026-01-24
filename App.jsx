@@ -56,7 +56,7 @@ const BIBLE_DATA = {
   "1 Kings": [53, 46, 28, 34, 18, 38, 51, 66, 28, 29, 43, 33, 34, 31, 34, 34, 24, 46, 21, 43, 29, 53],
   "2 Kings": [18, 25, 27, 44, 27, 33, 20, 29, 37, 36, 21, 21, 25, 25, 38, 20, 41, 37, 37, 21, 26, 20, 37, 20, 30],
   "1 Chronicles": [54, 55, 24, 43, 26, 81, 40, 40, 44, 14, 47, 40, 14, 17, 29, 43, 27, 17, 19, 8, 30, 19, 32, 31, 31, 32, 34, 21, 30],
-  "2 Chronicles": [17, 18, 17, 22, 14, 42, 22, 18, 31, 19, 23, 16, 22, 15, 19, 14, 19, 34, 11, 37, 20, 12, 21, 27, 28, 23, 9, 27, 36, 27, 21, 33, 25, 33, 25, 33, 25, 33, 25, 33, 27, 23],
+  "2 Chronicles": [17, 18, 17, 22, 14, 42, 22, 18, 31, 19, 23, 16, 22, 15, 19, 14, 19, 34, 11, 37, 20, 12, 21, 27, 28, 23, 9, 27, 36, 27, 21, 33, 25, 33, 25, 33, 25, 33, 27, 23],
   "Ezra": [11, 70, 13, 24, 17, 22, 28, 36, 15, 44],
   "Nehemiah": [11, 20, 32, 23, 19, 19, 73, 18, 38, 39, 36, 47, 31],
   "Esther": [22, 23, 15, 17, 14, 14, 10, 17, 32, 3],
@@ -120,10 +120,8 @@ const NT_BOOKS = [
 
 const WPM_TARGETS = Array.from({ length: 35 }, (_, i) => 25 + i * 5); 
 
-// Fallback to system configuration to resolve auth/configuration-not-found error
-// To use a custom firebase, ensure Anonymous Auth is enabled in the Firebase Console
-
-const firebaseConfig = {
+// Fallback logic: Use system config if available (Canvas), otherwise use custom config (GitHub/Hosting)
+const customFirebaseConfig = {
   apiKey: "AIzaSyCaqeOPN3sMZYSm21WCJYWC9GjjIZIAF9g",
   authDomain: "scripturetype.firebaseapp.com",
   projectId: "scripturetype",
@@ -133,12 +131,13 @@ const firebaseConfig = {
   measurementId: "G-4FD3PQ1F7R"
 };
 
-//const firebaseConfig = JSON.parse(__firebase_config);
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : customFirebaseConfig;
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+// Use system app ID if available, otherwise default to a safe generic ID
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'scripturetype';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -307,15 +306,23 @@ function GlobalNavSearch({ user, translation, onImport }) {
   };
 
   const handleImport = async (item) => {
-    if (!user) return;
-    await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'passages'), {
-      ...item,
-      favorite: false,
-      createdAt: serverTimestamp()
-    });
-    setResults(null);
-    setManualQuery('');
-    onImport();
+    if (!user) {
+      console.error("User not authenticated. Please enable Anonymous Auth in your Firebase Console.");
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'passages'), {
+        ...item,
+        favorite: false,
+        createdAt: serverTimestamp()
+      });
+      setResults(null);
+      setManualQuery('');
+      onImport();
+    } catch (err) {
+      console.error("Import failed:", err);
+      alert("Import failed. Check console for details (likely Firestore permissions).");
+    }
   };
 
   const selectWholeChapter = () => {
@@ -687,7 +694,7 @@ function Library({ user, targetWPM, setTargetWPM, onStart }) {
     <div className="space-y-12 pb-20">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
-          <h2 className="text-3xl font-serif font-black">Scripture Library</h2>
+          <h2 className="text-3xl font-serif font-black">Library</h2>
         </div>
         <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-stone-200">
           <Target className="w-4 h-4 text-amber-500" />
