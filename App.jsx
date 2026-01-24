@@ -121,12 +121,13 @@ const NT_BOOKS = [
 const WPM_TARGETS = Array.from({ length: 35 }, (_, i) => 25 + i * 5); 
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_APP_ID
+  apiKey: "AIzaSyCaqeOPN3sMZYSm21WCJYWC9GjjIZIAF9g",
+  authDomain: "scripturetype.firebaseapp.com",
+  projectId: "scripturetype",
+  storageBucket: "scripturetype.firebasestorage.app",
+  messagingSenderId: "737106048545",
+  appId: "1:737106048545:web:7f2534744495ae5e4d1560",
+  measurementId: "G-4FD3PQ1F7R"
 };
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
