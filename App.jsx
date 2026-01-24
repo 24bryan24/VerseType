@@ -122,7 +122,7 @@ const WPM_TARGETS = Array.from({ length: 35 }, (_, i) => 25 + i * 5);
 
 // Fallback to system configuration to resolve auth/configuration-not-found error
 // To use a custom firebase, ensure Anonymous Auth is enabled in the Firebase Console
-/*
+
 const firebaseConfig = {
   apiKey: "AIzaSyCaqeOPN3sMZYSm21WCJYWC9GjjIZIAF9g",
   authDomain: "scripturetype.firebaseapp.com",
@@ -132,8 +132,8 @@ const firebaseConfig = {
   appId: "1:737106048545:web:7f2534744495ae5e4d1560",
   measurementId: "G-4FD3PQ1F7R"
 };
-*/
-const firebaseConfig = JSON.parse(__firebase_config);
+
+//const firebaseConfig = JSON.parse(__firebase_config);
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
