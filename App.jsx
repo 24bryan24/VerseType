@@ -29,7 +29,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken }
 import { getFirestore, collection, addDoc, query, onSnapshot, deleteDoc, doc, updateDoc, serverTimestamp, orderBy, limit, getDocs, where } from 'firebase/firestore';
 
 // --- CONFIGURATION ---
-const ESV_API_KEY = "be4a8a6c93a524afa025790a3ed6fcfaea2431ec";
+const ESV_API_KEY = "2e524054a71754facfb7f01d2a41452552d1b6a1";
 const apiKey = ""; 
 
 const BIBLE_BOOKS = [
@@ -120,15 +120,7 @@ const NT_BOOKS = [
 
 const WPM_TARGETS = Array.from({ length: 35 }, (_, i) => 25 + i * 5); 
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCaqeOPN3sMZYSm21WCJYWC9GjjIZIAF9g",
-  authDomain: "scripturetype.firebaseapp.com",
-  projectId: "scripturetype",
-  storageBucket: "scripturetype.firebasestorage.app",
-  messagingSenderId: "737106048545",
-  appId: "1:737106048545:web:7f2534744495ae5e4d1560",
-  measurementId: "G-4FD3PQ1F7R"
-};
+const firebaseConfig = JSON.parse(__firebase_config);
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -174,50 +166,10 @@ export default function App() {
     };
   }, []);
 
-  const handleManualLogin = async () => {
-    setAuthLoading(true);
-    try {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
-      }
-    } catch (err) {
-      console.error("Login failed", err);
-      setAuthLoading(false);
-    }
-  };
-
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#faf9f6] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-[#faf9f6] flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl border border-stone-100 overflow-hidden text-center p-12">
-          <div className="bg-amber-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-8 text-white shadow-lg shadow-amber-200">
-            <BookOpen className="w-8 h-8" />
-          </div>
-          <h1 className="text-4xl font-serif font-black mb-4 tracking-tight">ScriptureType</h1>
-          <p className="text-stone-500 mb-10 leading-relaxed font-medium">
-            Internalize the Word through the art of focused transcription. Create your library and track your progress.
-          </p>
-          <button 
-            onClick={handleManualLogin}
-            className="w-full bg-stone-900 text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 hover:bg-stone-800 transition-all shadow-xl shadow-stone-200"
-          >
-            Get Started
-            <ArrowRight className="w-5 h-5" />
-          </button>
-          <p className="mt-8 text-[10px] font-black uppercase text-stone-300 tracking-widest">
-            Soli Deo Gloria
-          </p>
-        </div>
       </div>
     );
   }
@@ -559,13 +511,18 @@ function TypingEngine({ passage, user, targetWPM, onBack }) {
             <button onClick={onBack} className="flex items-center gap-2 text-stone-400 font-bold hover:text-stone-900 transition">
               <ChevronLeft className="w-5 h-5" /> Exit
             </button>
-            <button 
-              onClick={() => setIsPaused(!isPaused)} 
-              className={`flex items-center gap-2 font-bold transition ${isPaused ? 'text-amber-500' : 'text-stone-400 hover:text-stone-900'}`}
-            >
-              {isPaused ? <Play className="w-4 h-4 fill-amber-500" /> : <Pause className="w-4 h-4" />}
-              {isPaused ? 'Resume' : 'Pause'}
-            </button>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setIsPaused(!isPaused)} 
+                className={`flex items-center gap-2 font-bold transition ${isPaused ? 'text-amber-500' : 'text-stone-400 hover:text-stone-900'}`}
+              >
+                {isPaused ? <Play className="w-4 h-4 fill-amber-500" /> : <Pause className="w-4 h-4" />}
+                {isPaused ? 'Resume' : 'Pause'}
+              </button>
+              <div className="hidden md:flex items-center gap-1 text-[9px] font-black text-stone-300 bg-stone-50 px-2 py-1 rounded-lg border border-stone-100 uppercase tracking-widest select-none">
+                <span>Caps + Space</span>
+              </div>
+            </div>
           </div>
           
           <div className="flex gap-8 md:gap-16">
