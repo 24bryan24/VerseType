@@ -24,8 +24,10 @@ import {
   Check,
   ArrowRight
 } from 'lucide-react';
+import { useUser } from '@clerk/clerk-react';
+import { SignIn } from '@clerk/clerk-react';
+import { UserButton } from '@clerk/clerk-react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, collection, addDoc, query, onSnapshot, deleteDoc, doc, updateDoc, serverTimestamp, orderBy, limit, getDocs, getDoc, where } from 'firebase/firestore';
 
 // --- CONFIGURATION ---
@@ -172,15 +174,13 @@ const customFirebaseConfig = {
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : customFirebaseConfig;
 
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 const db = getFirestore(app);
 // Use system app ID if available, otherwise default to a safe generic ID
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'scripturetype';
 
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState('library'); 
+  const { isLoaded, isSignedIn, user: clerkUser } = useUser();
+  const [view, setView] = useState('library');
   const [activePassage, setActivePassage] = useState(null);
   const [targetWPM, setTargetWPM] = useState(60);
   const [preferredTranslation, setPreferredTranslation] = useState('ESV');
@@ -193,40 +193,37 @@ export default function App() {
     script.src = 'https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js';
     script.async = true;
     document.body.appendChild(script);
-
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (e) {
-        console.error("Auth init error:", e);
-      }
-    };
-    initAuth();
-
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setAuthLoading(false);
-    });
-
     return () => {
-      unsubscribe();
       if (document.body.contains(script)) {
         document.body.removeChild(script);
       }
     };
   }, []);
 
-  if (authLoading) {
+  if (!isLoaded) {
     return (
       <div className="min-h-screen bg-[#faf9f6] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
       </div>
     );
   }
+
+  if (!isSignedIn || !clerkUser) {
+    return (
+      <div className="min-h-screen bg-[#faf9f6] flex items-center justify-center p-4">
+        <SignIn
+          appearance={{
+            elements: {
+              rootBox: 'mx-auto',
+              card: 'shadow-xl border border-stone-200'
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  const user = { uid: clerkUser.id };
 
   const renderView = () => {
     switch(view) {
@@ -271,6 +268,9 @@ export default function App() {
             <NavBtn active={view === 'library'} onClick={() => setView('library')} icon={<List className="w-5 h-5"/>} label="Library" />
             <NavBtn active={view === 'achievements'} onClick={() => setView('achievements')} icon={<Trophy className="w-5 h-5"/>} label="Stats" />
             <NavBtn active={view === 'quotes'} onClick={() => setView('quotes')} icon={<Quote className="w-5 h-5"/>} label="Quotes" />
+            <div className="ml-1 flex items-center">
+              <UserButton afterSignOutUrl="/" />
+            </div>
           </nav>
         </div>
       </header>
@@ -588,6 +588,8 @@ function TypingEngine({ passage, user, targetWPM, setTargetWPM, onBack }) {
           passageId: passage.id, reference: passage.reference, wpm: finalMetrics.wpm,
           accuracy: finalMetrics.accuracy, targetWPM, timestamp: serverTimestamp(),
           slowestBigrams, fastestBigrams, belowTargetBigrams
+        }).catch((err) => {
+          console.error('Could not save session to Firestore:', err?.code || err?.message || err);
         });
       }
     }
@@ -1260,16 +1262,22 @@ function QuoteExplorer({ user, onImport }) {
 function AchievementsView({ user, onStartBigramDrill }) {
   const [history, setHistory] = useState([]);
   const [comboMetricWpm, setComboMetricWpm] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
 
   useEffect(() => {
     if (!user) return;
+    setHistoryError(null);
     const unsub = onSnapshot(
       query(
         collection(db, 'artifacts', appId, 'users', user.uid, 'history'),
         orderBy('timestamp', 'desc'),
         limit(50)
       ),
-      (snap) => setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      (snap) => setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      (err) => {
+        console.error('Stats / history query failed:', err?.code || err?.message, err);
+        setHistoryError(err?.code === 'permission-denied' ? 'Firestore permission denied. Update rules in Firebase Console → Firestore → Rules.' : err?.message || 'Could not load stats.');
+      }
     );
     return () => unsub();
   }, [user]);
@@ -1310,7 +1318,11 @@ function AchievementsView({ user, onStartBigramDrill }) {
           </label>
         )}
       </div>
-      {history.length === 0 ? (
+      {historyError ? (
+        <p className="text-center text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm">
+          {historyError} Check the browser console for details.
+        </p>
+      ) : history.length === 0 ? (
         <p className="text-center text-stone-400">Complete a practice session to see stats here.</p>
       ) : (
         <div className="space-y-8">

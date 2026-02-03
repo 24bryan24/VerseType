@@ -1,0 +1,12 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // VerseType uses Clerk for auth; Firebase Auth is not used, so request.auth is null.
+    // Allow read/write for the app data path so the app can save/load passages and history.
+    // For production, consider signing in to Firebase with a custom token from your backend
+    // so you can use request.auth.uid == userId here.
+    match /artifacts/{appId}/users/{userId}/{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
