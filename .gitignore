@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Local env (never commit API keys)
+.env
+.env.local
+.env.*.local
+
+# Build
+dist/
+build/
+
+# Logs and cache
+*.log
+.vite/

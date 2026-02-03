@@ -22,15 +22,16 @@ import {
   Sparkles,
   Plus,
   Check,
-  ArrowRight
+  ArrowRight,
+  Star
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, onSnapshot, deleteDoc, doc, updateDoc, serverTimestamp, orderBy, limit, getDocs, where } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, query, onSnapshot, deleteDoc, doc, updateDoc, serverTimestamp, orderBy, limit, getDocs, getDoc, where } from 'firebase/firestore';
 
 // --- CONFIGURATION ---
 const ESV_API_KEY = "be4a8a6c93a524afa025790a3ed6fcfaea2431ec";
-const apiKey = "AIzaSyABvUeTbiXE9xgkqaT-gT7m3fJ-FTwpptI"; 
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY; 
 
 const BIBLE_BOOKS = [
   "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua", "Judges", "Ruth", "1 Samuel", "2 Samuel", 
@@ -118,7 +119,77 @@ const NT_BOOKS = [
   "1 John", "2 John", "3 John", "Jude", "Revelation"
 ];
 
-const WPM_TARGETS = Array.from({ length: 35 }, (_, i) => 25 + i * 5); 
+const WPM_TARGETS = Array.from({ length: 35 }, (_, i) => 25 + i * 5);
+
+// Words for bigram drill: each contains the bigram (2 adjacent letters). Used to practice slow key combos.
+const BIGRAM_DRILL_WORDS = (
+  'the and they them their there these those thing think thought through thorough ' +
+  'church character which much such each reach teach branch bench stretch fetch ' +
+  'enough though although rough tough cough laugh right night light sight tight ' +
+  'would could should your four pour course source encourage courage ' +
+  'world work word worth worry worship worse worst ' +
+  'quick quite quiet quilt quote question require request ' +
+  'every very every never ever river silver ' +
+  'people example simple purple apple couple triple ' +
+  'great break spread bread thread dread tread instead ' +
+  'first thirst burst worst worsted ' +
+  'being doing going seeing trying dying lying ' +
+  'about without throughout doubt count mount ' +
+  'other another brother mother father together ' +
+  'where here there everywhere somewhere ' +
+  'when then often even seven given heaven ' +
+  'what that with both faith month health ' +
+  'who whole whose whom whomever ' +
+  'why why way say day may pay stay ' +
+  'than then them they their these ' +
+  'order border harder corner order ' +
+  'number member remember december september ' +
+  'under understand wonder thunder ' +
+  'friend field shield yield ' +
+  'piece receive perceive ceiling ' +
+  'science conscience efficient sufficient ' +
+  'machine magazine routine discipline '
+).split(/\s+/).filter(Boolean);
+
+function getWordsForBigram(bigram) {
+  if (!bigram || bigram.length !== 2) return ['the', 'and', 'for'];
+  const b = bigram.toLowerCase();
+  const out = BIGRAM_DRILL_WORDS.filter((w) => w.includes(b));
+  if (out.length === 0) return ['the', 'and', 'that', 'with', 'this', 'from', 'have', 'been', 'more', 'some'];
+  return out;
+}
+
+const bigramWordsAICache = new Map();
+
+async function fetchWordsForBigramFromAI(bigram) {
+  if (!bigram || bigram.length !== 2 || !GEMINI_API_KEY) return null;
+  const key = bigram.toLowerCase();
+  if (bigramWordsAICache.has(key)) return bigramWordsAICache.get(key);
+  try {
+    const prompt = `Return a JSON object with a single key "words" whose value is an array of 40-60 common English words. Each word must contain the two-letter sequence "${key}" with those two letters adjacent (e.g. for "th": the, think, both, with). Use only real, common words. Mix short and medium length. No other text, only the JSON object.`;
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json' }
+      })
+    });
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text || !res.ok) return null;
+    const parsed = JSON.parse(text);
+    const words = Array.isArray(parsed?.words) ? parsed.words : [];
+    const normalized = words.filter((w) => typeof w === 'string' && w.includes(key)).map((w) => w.toLowerCase().trim()).filter((w) => w.length > 1);
+    const unique = [...new Set(normalized)];
+    if (unique.length < 5) return null;
+    bigramWordsAICache.set(key, unique);
+    return unique;
+  } catch (e) {
+    console.warn('AI word list failed, using static list', e);
+    return null;
+  }
+} 
 
 // Fallback logic: Use system config if available (Canvas), otherwise use custom config (GitHub/Hosting)
 const customFirebaseConfig = {
@@ -146,6 +217,9 @@ export default function App() {
   const [activePassage, setActivePassage] = useState(null);
   const [targetWPM, setTargetWPM] = useState(60);
   const [preferredTranslation, setPreferredTranslation] = useState('ESV');
+  const [drillBigram, setDrillBigram] = useState(null);
+  const [drillTargetWPM, setDrillTargetWPM] = useState(60);
+  const [drillHistoryId, setDrillHistoryId] = useState(null);
 
   useEffect(() => {
     const script = document.createElement('script');
@@ -190,9 +264,15 @@ export default function App() {
   const renderView = () => {
     switch(view) {
       case 'typing': 
-        return <TypingEngine passage={activePassage} user={user} targetWPM={targetWPM} onBack={() => setView('library')} />;
+        return <TypingEngine passage={activePassage} user={user} targetWPM={targetWPM} setTargetWPM={setTargetWPM} onBack={() => setView('library')} />;
       case 'achievements':
-        return <AchievementsView user={user} />;
+        return <AchievementsView user={user} onStartBigramDrill={(bigram, targetWPM, historyId) => { setDrillBigram(bigram); setDrillTargetWPM(targetWPM ?? 60); setDrillHistoryId(historyId ?? null); setView('bigramDrill'); }} />;
+      case 'bigramDrill':
+        return drillBigram ? (
+          <BigramDrill bigram={drillBigram} targetWPM={drillTargetWPM} historyId={drillHistoryId} user={user} onBack={() => { setDrillBigram(null); setDrillHistoryId(null); setView('achievements'); }} />
+        ) : (
+          <AchievementsView user={user} onStartBigramDrill={(b, targetWPM, historyId) => { setDrillBigram(b); setDrillTargetWPM(targetWPM ?? 60); setDrillHistoryId(historyId ?? null); setView('bigramDrill'); }} />
+        );
       case 'quotes':
         return <QuoteExplorer user={user} onImport={() => setView('library')} />;
       default:
@@ -215,7 +295,7 @@ export default function App() {
             <div className="bg-amber-500 p-1.5 rounded-lg text-white">
               <BookOpen className="w-5 h-5" />
             </div>
-            <h1 className="text-lg font-black tracking-tight group-hover:text-amber-600 transition hidden sm:block">ScriptureType</h1>
+            <h1 className="text-lg font-black tracking-tight group-hover:text-amber-600 transition hidden sm:block">VerseType</h1>
           </div>
           
           <GlobalNavSearch user={user} translation={preferredTranslation} onImport={() => setView('library')} />
@@ -246,6 +326,8 @@ function NavBtn({ active, onClick, icon, label }) {
   );
 }
 
+const PASSAGE_SEARCH_COOLDOWN_MS = 3000;
+
 function GlobalNavSearch({ user, translation, onImport }) {
   const [isManual, setIsManual] = useState(false);
   const [manualQuery, setManualQuery] = useState('');
@@ -255,6 +337,7 @@ function GlobalNavSearch({ user, translation, onImport }) {
   const [endV, setEndV] = useState('1');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
+  const lastPassageSearchAt = useRef(0);
 
   const chaptersInBook = BIBLE_DATA[book] || [];
   const maxVerses = chaptersInBook[parseInt(chapter) - 1] || 1;
@@ -271,6 +354,9 @@ function GlobalNavSearch({ user, translation, onImport }) {
   }, [chapter, book]);
 
   const performSearch = async () => {
+    const now = Date.now();
+    if (now - lastPassageSearchAt.current < PASSAGE_SEARCH_COOLDOWN_MS) return;
+    lastPassageSearchAt.current = now;
     setLoading(true);
     const queryStr = isManual ? manualQuery : `${book} ${chapter}:${startV}${startV !== endV ? '-' + endV : ''}`;
     
@@ -310,15 +396,15 @@ function GlobalNavSearch({ user, translation, onImport }) {
       console.error("User not authenticated. Please enable Anonymous Auth in your Firebase Console.");
       return;
     }
+    setResults(null);
+    setManualQuery('');
+    onImport();
     try {
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'passages'), {
         ...item,
         favorite: false,
         createdAt: serverTimestamp()
       });
-      setResults(null);
-      setManualQuery('');
-      onImport();
     } catch (err) {
       console.error("Import failed:", err);
       alert("Import failed. Check console for details (likely Firestore permissions).");
@@ -420,7 +506,7 @@ function GlobalNavSearch({ user, translation, onImport }) {
   );
 }
 
-function TypingEngine({ passage, user, targetWPM, onBack }) {
+function TypingEngine({ passage, user, targetWPM, setTargetWPM, onBack }) {
   const [input, setInput] = useState('');
   const [startTime, setStartTime] = useState(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -428,6 +514,7 @@ function TypingEngine({ passage, user, targetWPM, onBack }) {
   const [liveAccuracy, setLiveAccuracy] = useState(100);
   const [stats, setStats] = useState(null);
   const inputRef = useRef(null);
+  const keyTimestamps = useRef([]);
 
   const normalizedText = useMemo(() => {
     return passage.text.trim().replace(/\s+/g, ' ');
@@ -481,20 +568,46 @@ function TypingEngine({ passage, user, targetWPM, onBack }) {
   const handleChange = (e) => {
     if (isPaused) return;
     const val = e.target.value;
-    if (val.length === 1 && !startTime) setStartTime(Date.now());
+    if (val.length === 1 && !startTime) {
+      setStartTime(Date.now());
+      keyTimestamps.current = [];
+    }
+    if (val.length > input.length) {
+      const t = Date.now();
+      for (let i = input.length; i < val.length; i++) keyTimestamps.current[i] = t;
+    } else if (val.length < input.length) {
+      keyTimestamps.current = keyTimestamps.current.slice(0, val.length);
+    }
     if (val.length <= normalizedText.length) {
       setInput(val);
     }
     if (val.length === normalizedText.length) {
       const finalMetrics = calculateMetrics(val, Date.now() - startTime);
       setStats(finalMetrics);
+      const bigrams = [];
+      const isLetter = (c) => /^[a-zA-Z]$/.test(c);
+      for (let i = 1; i < normalizedText.length; i++) {
+        const c0 = normalizedText[i - 1];
+        const c1 = normalizedText[i];
+        if (!isLetter(c0) || !isLetter(c1)) continue;
+        const t0 = keyTimestamps.current[i - 1];
+        const t1 = keyTimestamps.current[i];
+        if (t0 != null && t1 != null) {
+          bigrams.push({ bigram: c0 + c1, ms: t1 - t0 });
+        }
+      }
+      const bySlowest = [...bigrams].sort((a, b) => b.ms - a.ms);
+      const byFastest = [...bigrams].sort((a, b) => a.ms - b.ms);
+      const slowestBigrams = bySlowest.slice(0, 2).map(({ bigram, ms }) => ({ bigram, ms }));
+      const fastestBigrams = byFastest.slice(0, 2).map(({ bigram, ms }) => ({ bigram, ms }));
       if (finalMetrics.wpm >= targetWPM && window.confetti) {
         window.confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: ['#f59e0b', '#fbbf24'] });
       }
       if (user) {
         addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), {
           passageId: passage.id, reference: passage.reference, wpm: finalMetrics.wpm,
-          accuracy: finalMetrics.accuracy, targetWPM, timestamp: serverTimestamp()
+          accuracy: finalMetrics.accuracy, targetWPM, timestamp: serverTimestamp(),
+          slowestBigrams, fastestBigrams
         });
       }
     }
@@ -546,10 +659,22 @@ function TypingEngine({ passage, user, targetWPM, onBack }) {
             </div>
           </div>
           
-          <div className="flex gap-8 md:gap-16">
-             <div className="text-center">
-                <span className="block text-[10px] font-black text-stone-400 uppercase tracking-tighter">Speed</span>
-                <span className={`text-xl font-mono font-black ${liveWpm >= targetWPM ? 'text-amber-500' : 'text-stone-800'}`}>{liveWpm} <span className="text-[10px] text-stone-300">/ {targetWPM}</span></span>
+          <div className="flex gap-8 md:gap-16 items-center">
+             <div className="text-center flex items-center gap-2">
+                <div>
+                  <span className="block text-[10px] font-black text-stone-400 uppercase tracking-tighter">Speed</span>
+                  <span className={`text-xl font-mono font-black ${liveWpm >= targetWPM ? 'text-amber-500' : 'text-stone-800'}`}>{liveWpm} <span className="text-[10px] text-stone-300">/ {targetWPM}</span></span>
+                </div>
+                {setTargetWPM && (
+                  <button
+                    type="button"
+                    onClick={() => setTargetWPM(prev => prev >= 195 ? 25 : prev + 5)}
+                    className="shrink-0 w-8 h-8 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 font-bold text-sm leading-none transition-colors active:scale-95"
+                    title="Goal +5 WPM"
+                  >
+                    +5
+                  </button>
+                )}
              </div>
              <div className="text-center">
                 <span className="block text-[10px] font-black text-stone-400 uppercase tracking-tighter">Accuracy</span>
@@ -614,6 +739,153 @@ function TypingEngine({ passage, user, targetWPM, onBack }) {
       <div className="flex flex-col items-center gap-2">
         <p className="text-[10px] font-black uppercase text-stone-300 tracking-widest">{Math.round(progress)}% Completed</p>
         <p className="text-[8px] font-black text-stone-200 uppercase tracking-widest">Hold CapsLock + Space to Pause</p>
+      </div>
+    </div>
+  );
+}
+
+function BigramDrill({ bigram, targetWPM = 60, historyId, user, onBack }) {
+  const [wordList, setWordList] = useState(null);
+  const [wordIndex, setWordIndex] = useState(0);
+  const [input, setInput] = useState('');
+  const inputRef = useRef(null);
+  const wordKeyTimestamps = useRef([]);
+  const bigramTimes = useRef([]);
+  const drillResultSaved = useRef(false);
+  const TOTAL_WORDS = 20;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const aiWords = await fetchWordsForBigramFromAI(bigram);
+      if (cancelled) return;
+      const list = (aiWords && aiWords.length >= 5) ? aiWords : getWordsForBigram(bigram);
+      const base = list.length ? list : ['the', 'and', 'that'];
+      const repeated = [];
+      for (let i = 0; i < TOTAL_WORDS; i++) repeated.push(base[i % base.length]);
+      const shuffled = [...repeated].sort(() => Math.random() - 0.5);
+      setWordList(shuffled);
+    })();
+    return () => { cancelled = true; };
+  }, [bigram]);
+  const safeList = wordList || (() => { const b = ['the', 'and', 'that']; return Array.from({ length: TOTAL_WORDS }, (_, i) => b[i % b.length]); })();
+  const currentWord = safeList[wordIndex];
+  const isComplete = wordIndex >= TOTAL_WORDS || wordIndex >= safeList.length;
+
+  useEffect(() => {
+    if (wordList === null || isComplete) return;
+    const t = setTimeout(() => { inputRef.current?.focus(); }, 50);
+    return () => clearTimeout(t);
+  }, [wordIndex, wordList, isComplete]);
+
+  useEffect(() => {
+    if (!isComplete || !user || !historyId || drillResultSaved.current) return;
+    drillResultSaved.current = true;
+    const bigramLower = bigram.toLowerCase();
+    const hasTimes = bigramTimes.current.length > 0;
+    const avgMs = hasTimes ? bigramTimes.current.reduce((a, t) => a + t, 0) / bigramTimes.current.length : 0;
+    const bigramWpm = hasTimes ? (2 / 5) / (avgMs / 60000) : 0;
+    const passed = hasTimes && bigramWpm >= targetWPM;
+    const historyRef = doc(db, 'artifacts', appId, 'users', user.uid, 'history', historyId);
+    getDoc(historyRef).then((snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const updated = (data.slowestBigrams || []).map((b) =>
+        (b.bigram || '').toLowerCase() === bigramLower ? { ...b, drillPassed: passed } : b
+      );
+      return updateDoc(historyRef, { slowestBigrams: updated });
+    }).catch(console.warn);
+  }, [isComplete, bigram, targetWPM, historyId, user]);
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    if (!currentWord) return;
+    if (val.length > input.length) {
+      const t = Date.now();
+      for (let i = input.length; i < val.length; i++) wordKeyTimestamps.current[i] = t;
+    }
+    if (val.length <= currentWord.length) {
+      setInput(val);
+    } else {
+      setInput(val.slice(0, currentWord.length));
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (!currentWord) return;
+    if (e.key === ' ' && input.toLowerCase() === currentWord.toLowerCase()) {
+      e.preventDefault();
+      const idx = currentWord.toLowerCase().indexOf(bigram.toLowerCase());
+      if (idx !== -1 && wordKeyTimestamps.current[idx] != null && wordKeyTimestamps.current[idx + 1] != null) {
+        bigramTimes.current.push(wordKeyTimestamps.current[idx + 1] - wordKeyTimestamps.current[idx]);
+      }
+      wordKeyTimestamps.current = [];
+      setInput('');
+      setWordIndex((i) => i + 1);
+    }
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto py-12 px-4">
+      <div className="bg-white rounded-[2rem] shadow-2xl border border-stone-100 overflow-hidden">
+        <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between">
+          <button onClick={onBack} className="flex items-center gap-2 text-stone-400 font-bold hover:text-stone-900 transition">
+            <ChevronLeft className="w-5 h-5" /> Back to Stats
+          </button>
+          <span className="text-[10px] font-black uppercase text-amber-600 tracking-wider">
+            Practicing “{bigram.replace(/\s/g, '␣')}” · {Math.min(wordIndex, TOTAL_WORDS)} / {TOTAL_WORDS}
+          </span>
+        </div>
+        <div
+          className="p-12 md:p-16 cursor-text min-h-[40vh] flex flex-col items-center justify-center relative"
+          onClick={() => inputRef.current?.focus()}
+        >
+          {wordList === null ? (
+            <div className="flex flex-col items-center gap-4">
+              <Loader2 className="w-10 h-10 animate-spin text-amber-500" />
+              <p className="text-sm font-bold text-stone-500">Loading practice words...</p>
+            </div>
+          ) : isComplete ? (
+            <div className="text-center space-y-6">
+              <p className="text-2xl font-serif font-black text-stone-800">Done!</p>
+              <p className="text-stone-500 font-medium">{TOTAL_WORDS} / {TOTAL_WORDS} words</p>
+              <button onClick={onBack} className="px-8 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black">
+                Back to Stats
+              </button>
+            </div>
+          ) : (
+            <>
+              <p className="text-[10px] font-black uppercase text-stone-400 tracking-widest mb-6">
+                Word {wordIndex + 1} of {TOTAL_WORDS} — type the word, then Space
+              </p>
+              <div className="font-serif text-4xl md:text-5xl font-black select-none text-center">
+                {currentWord.split('').map((char, i) => {
+                  const isTyped = i < input.length;
+                  const correct = input[i] === char;
+                  const color = !isTyped ? 'text-stone-200' : correct ? 'text-stone-800' : 'text-red-500 bg-red-50';
+                  const cursor = i === input.length ? 'border-b-4 border-amber-500 bg-amber-400/20' : '';
+                  return <span key={i} className={`${color} ${cursor}`}>{char}</span>;
+                })}
+                {input.length === currentWord.length && (
+                  <span className="border-b-4 border-amber-500 bg-amber-400/20">&nbsp;</span>
+                )}
+              </div>
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={handleChange}
+                onKeyDown={handleKeyDown}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
+                autoFocus
+                className="opacity-0 absolute inset-0 w-full h-full pointer-events-none cursor-text"
+                aria-hidden
+              />
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -767,32 +1039,90 @@ function Library({ user, targetWPM, setTargetWPM, onStart }) {
   );
 }
 
+const QUOTE_SEARCH_COOLDOWN_SEC = 15;
+
 function QuoteExplorer({ user, onImport }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [quotes, setQuotes] = useState([]);
   const [importedItems, setImportedItems] = useState({});
+  const [searchError, setSearchError] = useState(null);
+  const [cooldownSecLeft, setCooldownSecLeft] = useState(0);
+  const lastQuoteSearchAt = useRef(0);
+
+  useEffect(() => {
+    if (cooldownSecLeft <= 0) return;
+    const t = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - lastQuoteSearchAt.current) / 1000);
+      const left = Math.max(0, QUOTE_SEARCH_COOLDOWN_SEC - elapsed);
+      setCooldownSecLeft(left);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [cooldownSecLeft]);
 
   const searchQuotes = async () => {
-    if (!searchTerm) return;
+    if (!searchTerm.trim()) return;
+    if (cooldownSecLeft > 0) {
+      setSearchError(`Please wait ${cooldownSecLeft}s before searching again.`);
+      return;
+    }
+    if (!GEMINI_API_KEY) {
+      setSearchError('Quotes search needs a Gemini API key. Add VITE_GEMINI_API_KEY to your .env file.');
+      return;
+    }
+    lastQuoteSearchAt.current = Date.now();
+    setCooldownSecLeft(QUOTE_SEARCH_COOLDOWN_SEC);
     setLoading(true);
+    setSearchError(null);
     setImportedItems({});
-    try {
-      const prompt = `Search for 8 quotes from Christian authors, theologians, or historical figures related to: ${searchTerm}. Ensure all results are specifically within the Christian tradition.`;
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+    const prompt = `Search for 8 quotes from Christian authors, theologians, or historical figures related to: ${searchTerm.trim()}. Ensure all results are specifically within the Christian tradition.`;
+    const body = {
+      contents: [{ parts: [{ text: prompt }] }],
+      systemInstruction: { parts: [{ text: "Return only a JSON object with a 'quotes' array. Each quote must have 'text', 'author', and 'resource' (string). No markdown, no code fences." }] },
+      generationConfig: { responseMimeType: "application/json" }
+    };
+    const tryModel = async (model) => {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          systemInstruction: { parts: [{ text: "Return a JSON object with 'quotes' array. Each quote has 'text', 'author', and 'resource'." }] },
-          generationConfig: { responseMimeType: "application/json" }
-        })
+        body: JSON.stringify(body)
       });
       const data = await response.json();
-      const result = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text);
-      setQuotes(result.quotes || []);
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+      return { response, data };
+    };
+    try {
+      // Single request: use 1.5-flash (free tier). Only fallback to 2.0 on 404/not found (not on quota to avoid extra request).
+      let { response, data } = await tryModel('gemini-1.5-flash');
+      const shouldTryFallback = !response.ok && (response.status === 404 || data?.error?.message?.includes('not found')) && !data?.error?.message?.toLowerCase().includes('quota');
+      if (shouldTryFallback) {
+        const fallback = await tryModel('gemini-2.0-flash');
+        response = fallback.response;
+        data = fallback.data;
+      }
+      if (!response.ok) {
+        const msg = data?.error?.message || data?.error?.status || `Request failed (${response.status})`;
+        const retryMatch = msg.match(/retry in ([\d.]+)s/i);
+        setSearchError(retryMatch ? `Rate limit reached. Try again in ${Math.ceil(parseFloat(retryMatch[1]))} seconds.` : msg);
+        setQuotes([]);
+        return;
+      }
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        const blockReason = data.candidates?.[0]?.finishReason || data.promptFeedback?.blockReason;
+        setSearchError(blockReason ? `Response blocked: ${blockReason}` : 'No results returned. Try a different search.');
+        setQuotes([]);
+        return;
+      }
+      const parsed = typeof text === 'string' ? JSON.parse(text) : text;
+      const list = Array.isArray(parsed?.quotes) ? parsed.quotes : [];
+      setQuotes(list.filter(q => q && (q.text != null && q.author != null)));
+    } catch (e) {
+      console.error(e);
+      setSearchError(e.message || 'Search failed. Check your connection and try again.');
+      setQuotes([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleToggleImport = async (q, index) => {
@@ -844,13 +1174,16 @@ function QuoteExplorer({ user, onImport }) {
           />
           <button 
             onClick={searchQuotes} 
-            disabled={loading}
+            disabled={loading || cooldownSecLeft > 0}
             className="bg-amber-500 hover:bg-amber-600 text-white px-8 py-3 rounded-[1.25rem] font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin"/> : <Search className="w-4 h-4" />}
-            {loading ? 'Finding...' : 'Discover'}
+            {loading ? 'Finding...' : cooldownSecLeft > 0 ? `Try again in ${cooldownSecLeft}s` : 'Discover'}
           </button>
         </div>
+        {searchError && (
+          <p className="mt-3 text-sm text-red-600 font-medium max-w-lg mx-auto">{searchError}</p>
+        )}
       </div>
 
       <div className="space-y-4">
@@ -896,12 +1229,89 @@ function QuoteExplorer({ user, onImport }) {
   );
 }
 
-function AchievementsView({ user }) {
+function AchievementsView({ user, onStartBigramDrill }) {
+  const [history, setHistory] = useState([]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(
+      query(
+        collection(db, 'artifacts', appId, 'users', user.uid, 'history'),
+        orderBy('timestamp', 'desc'),
+        limit(50)
+      ),
+      (snap) => setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    return () => unsub();
+  }, [user]);
+
+  const formatBigram = (b) => {
+    const s = b.bigram.replace(/\s/g, '␣');
+    return `${s} (${b.ms}ms)`;
+  };
+
   return (
-    <div className="text-center py-24 space-y-4">
-      <Trophy className="w-16 h-16 mx-auto text-amber-200" />
-      <h2 className="text-2xl font-serif font-black">Stats & Achievements</h2>
-      <p className="text-stone-400">Complete sessions to see your trends over time.</p>
+    <div className="max-w-2xl mx-auto py-12 px-4 space-y-10">
+      <div className="text-center">
+        <Trophy className="w-16 h-16 mx-auto text-amber-200" />
+        <h2 className="text-2xl font-serif font-black mt-4">Stats & Achievements</h2>
+        <p className="text-stone-400 mt-1">Complete sessions to see your trends and key-combo stats.</p>
+      </div>
+      {history.length === 0 ? (
+        <p className="text-center text-stone-400">Complete a practice session to see stats here.</p>
+      ) : (
+        <div className="space-y-8">
+          {history.map((h) => (
+            <div key={h.id} className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-stone-100">
+                <span className="font-serif font-black text-stone-800">{h.reference || 'Practice'}</span>
+                <span className="text-sm font-mono font-bold text-amber-600">{h.wpm} WPM · {h.accuracy}%</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-[10px] font-black uppercase text-stone-400 tracking-wider mb-2">Slowest 2 key combos</h3>
+                  <ul className="space-y-1.5 font-mono text-sm">
+                    {(h.slowestBigrams || []).length ? (
+                      (h.slowestBigrams || []).map((b, i) => (
+                        <li key={i} className="flex items-center gap-2 flex-wrap">
+                          <span className="text-stone-600">{formatBigram(b)}</span>
+                          {onStartBigramDrill && (
+                            <button
+                              type="button"
+                              onClick={() => onStartBigramDrill(b.bigram, h.targetWPM, h.id)}
+                              className="px-2 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 text-[10px] font-black uppercase tracking-wide transition-colors"
+                            >
+                              Practice
+                            </button>
+                          )}
+                          {b.drillPassed === true && <Star className="w-4 h-4 text-amber-500 fill-amber-500 shrink-0" title="Drill passed (met goal)" />}
+                          {b.drillPassed === false && <X className="w-4 h-4 text-red-400 shrink-0" title="Drill below goal" />}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-stone-400">—</li>
+                    )}
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="text-[10px] font-black uppercase text-stone-400 tracking-wider mb-2">Fastest 2 key combos</h3>
+                  <ul className="space-y-1.5 font-mono text-sm">
+                    {(h.fastestBigrams || []).length ? (
+                      (h.fastestBigrams || []).map((b, i) => (
+                        <li key={i} className="text-emerald-600">
+                          {formatBigram(b)}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-stone-400">—</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
