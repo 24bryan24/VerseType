@@ -22,8 +22,7 @@ import {
   Sparkles,
   Plus,
   Check,
-  ArrowRight,
-  Star
+  ArrowRight
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
@@ -121,73 +120,41 @@ const NT_BOOKS = [
 
 const WPM_TARGETS = Array.from({ length: 35 }, (_, i) => 25 + i * 5);
 
-// Words for bigram drill: each contains the bigram (2 adjacent letters). Used to practice slow key combos.
-const BIGRAM_DRILL_WORDS = (
-  'the and they them their there these those thing think thought through thorough ' +
-  'church character which much such each reach teach branch bench stretch fetch ' +
-  'enough though although rough tough cough laugh right night light sight tight ' +
-  'would could should your four pour course source encourage courage ' +
-  'world work word worth worry worship worse worst ' +
-  'quick quite quiet quilt quote question require request ' +
-  'every very every never ever river silver ' +
-  'people example simple purple apple couple triple ' +
-  'great break spread bread thread dread tread instead ' +
-  'first thirst burst worst worsted ' +
-  'being doing going seeing trying dying lying ' +
-  'about without throughout doubt count mount ' +
-  'other another brother mother father together ' +
-  'where here there everywhere somewhere ' +
-  'when then often even seven given heaven ' +
-  'what that with both faith month health ' +
-  'who whole whose whom whomever ' +
-  'why why way say day may pay stay ' +
-  'than then them they their these ' +
-  'order border harder corner order ' +
-  'number member remember december september ' +
-  'under understand wonder thunder ' +
-  'friend field shield yield ' +
-  'piece receive perceive ceiling ' +
-  'science conscience efficient sufficient ' +
-  'machine magazine routine discipline '
+// Embedded word list for bigram drill fallback (common words, no API). Used when Datamuse returns few.
+const BIGRAM_FALLBACK_WORDS = (
+  'the and that with this from have been more some would could their there ' +
+  'they think thing through those these where when which while after about ' +
+  'other every first right might still those three together another nothing ' +
+  'something anything everything whether rather father mother brother either ' +
+  'neither weather further rather gather rather other another brother mother ' +
+  'rather further gather either neither weather leather heather altogether ' +
+  'worthy wealthy healthy stealthy lengthy strength perfectly thoughtfully ' +
+  'thoughtless thoroughly throughout thoughtful something anything nothing ' +
+  'everything worthwhile somewhere anywhere everywhere nowhere somehow ' +
+  'church character which much such each reach teach branch bench stretch ' +
+  'enough though although rough tough cough laugh right night light sight ' +
+  'tight thought brought fought sought wrought daughter slaughter'
 ).split(/\s+/).filter(Boolean);
 
-function getWordsForBigram(bigram) {
-  if (!bigram || bigram.length !== 2) return ['the', 'and', 'for'];
-  const b = bigram.toLowerCase();
-  const out = BIGRAM_DRILL_WORDS.filter((w) => w.includes(b));
-  if (out.length === 0) return ['the', 'and', 'that', 'with', 'this', 'from', 'have', 'been', 'more', 'some'];
-  return out;
-}
-
-const bigramWordsAICache = new Map();
-
-async function fetchWordsForBigramFromAI(bigram) {
-  if (!bigram || bigram.length !== 2 || !GEMINI_API_KEY) return null;
+async function fetchWordsForBigram(bigram) {
+  if (!bigram || bigram.length !== 2) return { words: null, error: 'invalid_bigram' };
   const key = bigram.toLowerCase();
-  if (bigramWordsAICache.has(key)) return bigramWordsAICache.get(key);
   try {
-    const prompt = `Return a JSON object with a single key "words" whose value is an array of 40-60 common English words. Each word must contain the two-letter sequence "${key}" with those two letters adjacent (e.g. for "th": the, think, both, with). Use only real, common words. Mix short and medium length. No other text, only the JSON object.`;
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: 'application/json' }
-      })
-    });
+    const pattern = `*${key[0]}${key[1]}*`;
+    const res = await fetch(`https://api.datamuse.com/words?sp=${encodeURIComponent(pattern)}&max=80`);
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
     const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text || !res.ok) return null;
-    const parsed = JSON.parse(text);
-    const words = Array.isArray(parsed?.words) ? parsed.words : [];
-    const normalized = words.filter((w) => typeof w === 'string' && w.includes(key)).map((w) => w.toLowerCase().trim()).filter((w) => w.length > 1);
-    const unique = [...new Set(normalized)];
-    if (unique.length < 5) return null;
-    bigramWordsAICache.set(key, unique);
-    return unique;
+    const fromApi = (Array.isArray(data) ? data : [])
+      .map((o) => (typeof o.word === 'string' ? o.word : '').toLowerCase().trim())
+      .filter((w) => w.length > 1 && w.includes(key));
+    const fromFallback = BIGRAM_FALLBACK_WORDS.filter((w) => w.includes(key));
+    const combined = [...new Set([...fromApi, ...fromFallback])];
+    if (combined.length < 1) return { words: null, error: 'too_few_words' };
+    return { words: combined };
   } catch (e) {
-    console.warn('AI word list failed, using static list', e);
-    return null;
+    const fromFallback = BIGRAM_FALLBACK_WORDS.filter((w) => w.includes(key));
+    if (fromFallback.length >= 1) return { words: fromFallback };
+    return { words: null, error: e.message || 'Network error' };
   }
 } 
 
@@ -521,6 +488,8 @@ function TypingEngine({ passage, user, targetWPM, setTargetWPM, onBack }) {
   }, [passage.text]);
 
   const progress = (input.length / normalizedText.length) * 100;
+  const totalWords = useMemo(() => normalizedText.trim().split(/\s+/).filter(Boolean).length, [normalizedText]);
+  const wordsTyped = input.trim().split(/\s+/).filter(Boolean).length;
 
   useEffect(() => { inputRef.current?.focus(); }, [isPaused]);
 
@@ -598,6 +567,17 @@ function TypingEngine({ passage, user, targetWPM, setTargetWPM, onBack }) {
       }
       const bySlowest = [...bigrams].sort((a, b) => b.ms - a.ms);
       const byFastest = [...bigrams].sort((a, b) => a.ms - b.ms);
+      const thresholdMs = 24000 / targetWPM;
+      const belowTargetByBigram = new Map();
+      bigrams
+        .filter((b) => b.ms > thresholdMs)
+        .forEach((b) => {
+          const prev = belowTargetByBigram.get(b.bigram);
+          if (!prev || b.ms > prev.ms) belowTargetByBigram.set(b.bigram, { bigram: b.bigram, ms: b.ms });
+        });
+      const belowTargetBigrams = [...belowTargetByBigram.values()]
+        .sort((a, b) => b.ms - a.ms)
+        .map(({ bigram, ms }) => ({ bigram, ms }));
       const slowestBigrams = bySlowest.slice(0, 2).map(({ bigram, ms }) => ({ bigram, ms }));
       const fastestBigrams = byFastest.slice(0, 2).map(({ bigram, ms }) => ({ bigram, ms }));
       if (finalMetrics.wpm >= targetWPM && window.confetti) {
@@ -607,7 +587,7 @@ function TypingEngine({ passage, user, targetWPM, setTargetWPM, onBack }) {
         addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'history'), {
           passageId: passage.id, reference: passage.reference, wpm: finalMetrics.wpm,
           accuracy: finalMetrics.accuracy, targetWPM, timestamp: serverTimestamp(),
-          slowestBigrams, fastestBigrams
+          slowestBigrams, fastestBigrams, belowTargetBigrams
         });
       }
     }
@@ -690,7 +670,16 @@ function TypingEngine({ passage, user, targetWPM, setTargetWPM, onBack }) {
           className="p-12 md:p-16 cursor-text min-h-[50vh] flex flex-col items-center relative"
           onClick={() => inputRef.current?.focus()}
         >
-          {/* Progress Bar - Moved closer and made bigger/rounded */}
+          {/* Words typed - prominent */}
+          <div className="text-center mb-6">
+            <p className="text-[10px] font-black uppercase text-stone-400 tracking-widest mb-1">Words</p>
+            <p className="text-4xl md:text-5xl font-mono font-black text-stone-800">
+              <span className="text-amber-500">{wordsTyped}</span>
+              <span className="text-stone-300 font-medium"> / </span>
+              <span>{totalWords}</span>
+            </p>
+          </div>
+          {/* Progress Bar */}
           <div className="w-full max-w-lg mb-8">
             <div className="h-2 bg-stone-100 w-full rounded-full overflow-hidden shadow-inner">
               <div 
@@ -737,7 +726,7 @@ function TypingEngine({ passage, user, targetWPM, setTargetWPM, onBack }) {
       </div>
 
       <div className="flex flex-col items-center gap-2">
-        <p className="text-[10px] font-black uppercase text-stone-300 tracking-widest">{Math.round(progress)}% Completed</p>
+        <p className="text-[10px] font-black uppercase text-stone-300 tracking-widest">{wordsTyped} / {totalWords} words · {Math.round(progress)}%</p>
         <p className="text-[8px] font-black text-stone-200 uppercase tracking-widest">Hold CapsLock + Space to Pause</p>
       </div>
     </div>
@@ -751,16 +740,24 @@ function BigramDrill({ bigram, targetWPM = 60, historyId, user, onBack }) {
   const inputRef = useRef(null);
   const wordKeyTimestamps = useRef([]);
   const bigramTimes = useRef([]);
+  const correctWordsCount = useRef(0);
   const drillResultSaved = useRef(false);
   const TOTAL_WORDS = 20;
 
+  const [wordListError, setWordListError] = useState(null);
+
   useEffect(() => {
     let cancelled = false;
+    setWordListError(null);
     (async () => {
-      const aiWords = await fetchWordsForBigramFromAI(bigram);
+      const result = await fetchWordsForBigram(bigram);
       if (cancelled) return;
-      const list = (aiWords && aiWords.length >= 5) ? aiWords : getWordsForBigram(bigram);
-      const base = list.length ? list : ['the', 'and', 'that'];
+      if (result.error || !result.words || result.words.length === 0) {
+        setWordListError(result.error || 'Could not generate words');
+        setWordList([]);
+        return;
+      }
+      const base = result.words;
       const repeated = [];
       for (let i = 0; i < TOTAL_WORDS; i++) repeated.push(base[i % base.length]);
       const shuffled = [...repeated].sort(() => Math.random() - 0.5);
@@ -768,9 +765,11 @@ function BigramDrill({ bigram, targetWPM = 60, historyId, user, onBack }) {
     })();
     return () => { cancelled = true; };
   }, [bigram]);
-  const safeList = wordList || (() => { const b = ['the', 'and', 'that']; return Array.from({ length: TOTAL_WORDS }, (_, i) => b[i % b.length]); })();
+
+  const safeList = wordList && wordList.length > 0 ? wordList : [];
   const currentWord = safeList[wordIndex];
   const isComplete = wordIndex >= TOTAL_WORDS || wordIndex >= safeList.length;
+  const hasWords = safeList.length > 0;
 
   useEffect(() => {
     if (wordList === null || isComplete) return;
@@ -787,14 +786,19 @@ function BigramDrill({ bigram, targetWPM = 60, historyId, user, onBack }) {
     const bigramWpm = hasTimes ? (2 / 5) / (avgMs / 60000) : 0;
     const passed = hasTimes && bigramWpm >= targetWPM;
     const historyRef = doc(db, 'artifacts', appId, 'users', user.uid, 'history', historyId);
-    getDoc(historyRef).then((snap) => {
-      if (!snap.exists()) return;
-      const data = snap.data();
-      const updated = (data.slowestBigrams || []).map((b) =>
-        (b.bigram || '').toLowerCase() === bigramLower ? { ...b, drillPassed: passed } : b
-      );
-      return updateDoc(historyRef, { slowestBigrams: updated });
-    }).catch(console.warn);
+    getDoc(historyRef)
+      .then((snap) => {
+        if (!snap.exists()) return Promise.resolve();
+        const data = snap.data();
+        const updateBigram = (b) =>
+          (b.bigram || '').toLowerCase() === bigramLower
+            ? { ...b, drillPassed: passed, drillAvgMs: hasTimes ? Math.round(avgMs) : null }
+            : b;
+        const updatedSlowest = (data.slowestBigrams || []).map(updateBigram);
+        const updatedBelow = (data.belowTargetBigrams || []).map(updateBigram);
+        return updateDoc(historyRef, { slowestBigrams: updatedSlowest, belowTargetBigrams: updatedBelow });
+      })
+      .catch(console.warn);
   }, [isComplete, bigram, targetWPM, historyId, user]);
 
   const handleChange = (e) => {
@@ -813,15 +817,20 @@ function BigramDrill({ bigram, targetWPM = 60, historyId, user, onBack }) {
 
   const handleKeyDown = (e) => {
     if (!currentWord) return;
-    if (e.key === ' ' && input.toLowerCase() === currentWord.toLowerCase()) {
+    if (e.key === ' ') {
       e.preventDefault();
-      const idx = currentWord.toLowerCase().indexOf(bigram.toLowerCase());
-      if (idx !== -1 && wordKeyTimestamps.current[idx] != null && wordKeyTimestamps.current[idx + 1] != null) {
-        bigramTimes.current.push(wordKeyTimestamps.current[idx + 1] - wordKeyTimestamps.current[idx]);
+      if (input.toLowerCase() === currentWord.toLowerCase()) {
+        correctWordsCount.current++;
+        const idx = currentWord.toLowerCase().indexOf(bigram.toLowerCase());
+        if (idx !== -1 && wordKeyTimestamps.current[idx] != null && wordKeyTimestamps.current[idx + 1] != null) {
+          bigramTimes.current.push(wordKeyTimestamps.current[idx + 1] - wordKeyTimestamps.current[idx]);
+        }
       }
       wordKeyTimestamps.current = [];
       setInput('');
+      const nextIndex = wordIndex + 1;
       setWordIndex((i) => i + 1);
+      if (nextIndex >= TOTAL_WORDS) onBack();
     }
   };
 
@@ -843,20 +852,39 @@ function BigramDrill({ bigram, targetWPM = 60, historyId, user, onBack }) {
           {wordList === null ? (
             <div className="flex flex-col items-center gap-4">
               <Loader2 className="w-10 h-10 animate-spin text-amber-500" />
-              <p className="text-sm font-bold text-stone-500">Loading practice words...</p>
+              <p className="text-sm font-bold text-stone-500">Loading practice words for “{bigram}”…</p>
             </div>
-          ) : isComplete ? (
-            <div className="text-center space-y-6">
-              <p className="text-2xl font-serif font-black text-stone-800">Done!</p>
-              <p className="text-stone-500 font-medium">{TOTAL_WORDS} / {TOTAL_WORDS} words</p>
-              <button onClick={onBack} className="px-8 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black">
+          ) : wordListError || !hasWords ? (
+            <div className="text-center space-y-4 max-w-md px-4">
+              <p className="text-stone-600 font-medium">
+                {wordListError && wordListError.startsWith('Rate limit')
+                  ? 'API rate limit reached'
+                  : "Couldn't generate words for this combo."}
+              </p>
+              <p className="text-sm text-stone-400">
+                {wordListError === 'no_api_key'
+                  ? 'Add VITE_GEMINI_API_KEY to your .env file and restart the dev server.'
+                  : wordListError === 'too_few_words'
+                    ? 'The API returned too few valid words.'
+                    : typeof wordListError === 'string'
+                      ? wordListError
+                      : 'Check your connection and API key, then try again.'}
+              </p>
+              {wordListError && !wordListError.startsWith('Rate limit') && wordListError !== 'no_api_key' && wordListError !== 'too_few_words' ? (
+                <p className="text-[10px] text-stone-300">Restart the app after changing .env. For deployed builds, set the secret in GitHub repo Settings → Secrets.</p>
+              ) : null}
+              <button onClick={onBack} className="px-6 py-2 bg-stone-200 hover:bg-stone-300 text-stone-700 rounded-xl font-bold text-sm">
                 Back to Stats
               </button>
             </div>
-          ) : (
+          ) : isComplete ? (
+            <div className="text-center">
+              <p className="text-sm text-stone-400 font-medium">Returning to stats…</p>
+            </div>
+          ) : hasWords ? (
             <>
-              <p className="text-[10px] font-black uppercase text-stone-400 tracking-widest mb-6">
-                Word {wordIndex + 1} of {TOTAL_WORDS} — type the word, then Space
+              <p className="text-2xl font-mono font-black text-stone-400 mb-6">
+                {wordIndex + 1}/{TOTAL_WORDS}
               </p>
               <div className="font-serif text-4xl md:text-5xl font-black select-none text-center">
                 {currentWord.split('').map((char, i) => {
@@ -884,7 +912,7 @@ function BigramDrill({ bigram, targetWPM = 60, historyId, user, onBack }) {
                 aria-hidden
               />
             </>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -1231,6 +1259,7 @@ function QuoteExplorer({ user, onImport }) {
 
 function AchievementsView({ user, onStartBigramDrill }) {
   const [history, setHistory] = useState([]);
+  const [comboMetricWpm, setComboMetricWpm] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -1245,9 +1274,18 @@ function AchievementsView({ user, onStartBigramDrill }) {
     return () => unsub();
   }, [user]);
 
-  const formatBigram = (b) => {
-    const s = b.bigram.replace(/\s/g, '␣');
-    return `${s} (${b.ms}ms)`;
+  const bigramMsToWpm = (ms) => (ms > 0 ? Math.round(24000 / ms) : 0);
+  const formatBigram = (b, useWpm) => {
+    const s = (b.bigram || '').replace(/\s/g, '␣');
+    const ms = b.ms != null ? b.ms : 0;
+    if (useWpm && ms > 0) return `${s} (${bigramMsToWpm(ms)} WPM)`;
+    return `${s} (${ms}ms)`;
+  };
+  const formatDrillResult = (b, useWpm) => {
+    const ms = b.drillAvgMs;
+    if (ms != null) return useWpm ? `${bigramMsToWpm(ms)} WPM` : `${ms} ms avg`;
+    if (b.drillPassed === true || b.drillPassed === false) return '—';
+    return null;
   };
 
   return (
@@ -1256,6 +1294,21 @@ function AchievementsView({ user, onStartBigramDrill }) {
         <Trophy className="w-16 h-16 mx-auto text-amber-200" />
         <h2 className="text-2xl font-serif font-black mt-4">Stats & Achievements</h2>
         <p className="text-stone-400 mt-1">Complete sessions to see your trends and key-combo stats.</p>
+        {history.length > 0 && (
+          <label className="inline-flex items-center gap-2 cursor-pointer select-none mt-4">
+            <span className="text-[10px] font-bold uppercase text-stone-400 tracking-wider">Combo metric:</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={comboMetricWpm}
+              onClick={() => setComboMetricWpm((v) => !v)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 ${comboMetricWpm ? 'bg-amber-500' : 'bg-stone-200'}`}
+            >
+              <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${comboMetricWpm ? 'translate-x-5' : 'translate-x-0.5'}`} style={{ marginTop: 2 }} />
+            </button>
+            <span className="text-[10px] font-mono text-stone-500 w-12">{comboMetricWpm ? 'WPM' : 'ms'}</span>
+          </label>
+        )}
       </div>
       {history.length === 0 ? (
         <p className="text-center text-stone-400">Complete a practice session to see stats here.</p>
@@ -1263,43 +1316,84 @@ function AchievementsView({ user, onStartBigramDrill }) {
         <div className="space-y-8">
           {history.map((h) => (
             <div key={h.id} className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-stone-100">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-stone-100">
                 <span className="font-serif font-black text-stone-800">{h.reference || 'Practice'}</span>
                 <span className="text-sm font-mono font-bold text-amber-600">{h.wpm} WPM · {h.accuracy}%</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-[10px] font-black uppercase text-stone-400 tracking-wider mb-2">Slowest 2 key combos</h3>
-                  <ul className="space-y-1.5 font-mono text-sm">
-                    {(h.slowestBigrams || []).length ? (
-                      (h.slowestBigrams || []).map((b, i) => (
-                        <li key={i} className="flex items-center gap-2 flex-wrap">
-                          <span className="text-stone-600">{formatBigram(b)}</span>
-                          {onStartBigramDrill && (
-                            <button
-                              type="button"
-                              onClick={() => onStartBigramDrill(b.bigram, h.targetWPM, h.id)}
-                              className="px-2 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 text-[10px] font-black uppercase tracking-wide transition-colors"
-                            >
-                              Practice
-                            </button>
-                          )}
-                          {b.drillPassed === true && <Star className="w-4 h-4 text-amber-500 fill-amber-500 shrink-0" title="Drill passed (met goal)" />}
-                          {b.drillPassed === false && <X className="w-4 h-4 text-red-400 shrink-0" title="Drill below goal" />}
-                        </li>
-                      ))
-                    ) : (
-                      <li className="text-stone-400">—</li>
-                    )}
-                  </ul>
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-[10px] font-black uppercase text-stone-400 tracking-wider mb-2">Slowest 2 key combos</h3>
+                    <ul className="space-y-1.5 font-mono text-sm">
+                      {(h.slowestBigrams || []).length ? (
+                        (h.slowestBigrams || []).map((b, i) => (
+                          <li key={i} className="flex items-center gap-2 whitespace-nowrap">
+                            <span className="text-stone-600">{formatBigram(b, comboMetricWpm)}</span>
+                            {onStartBigramDrill && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => onStartBigramDrill(b.bigram, h.targetWPM, h.id)}
+                                  className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors shrink-0 ${
+                                    b.drillPassed === true ? 'bg-emerald-500 hover:bg-emerald-600 text-white' :
+                                    b.drillPassed === false ? 'bg-red-500 hover:bg-red-600 text-white' :
+                                    'bg-slate-200 hover:bg-slate-300 text-slate-600'
+                                  }`}
+                                >
+                                  Practice
+                                </button>
+                                {formatDrillResult(b, comboMetricWpm) != null && (
+                                  <span className="text-[10px] font-mono text-stone-400 shrink-0">{formatDrillResult(b, comboMetricWpm)}</span>
+                                )}
+                              </>
+                            )}
+                          </li>
+                        ))
+                      ) : (
+                        <li className="text-stone-400">—</li>
+                      )}
+                    </ul>
+                  </div>
+                  <div>
+                    <h3 className="text-[10px] font-black uppercase text-stone-400 tracking-wider mb-2">Fastest 2 key combos</h3>
+                    <ul className="space-y-1.5 font-mono text-sm">
+                      {(h.fastestBigrams || []).length ? (
+                        (h.fastestBigrams || []).map((b, i) => (
+                          <li key={i} className="text-emerald-600">
+                            {formatBigram(b, comboMetricWpm)}
+                          </li>
+                        ))
+                      ) : (
+                        <li className="text-stone-400">—</li>
+                      )}
+                    </ul>
+                  </div>
                 </div>
                 <div>
-                  <h3 className="text-[10px] font-black uppercase text-stone-400 tracking-wider mb-2">Fastest 2 key combos</h3>
+                  <h3 className="text-[10px] font-black uppercase text-amber-600 tracking-wider mb-2">Below target (need practice)</h3>
                   <ul className="space-y-1.5 font-mono text-sm">
-                    {(h.fastestBigrams || []).length ? (
-                      (h.fastestBigrams || []).map((b, i) => (
-                        <li key={i} className="text-emerald-600">
-                          {formatBigram(b)}
+                    {(h.belowTargetBigrams || []).length ? (
+                      (h.belowTargetBigrams || []).map((b, i) => (
+                        <li key={i} className="flex items-center gap-2 whitespace-nowrap">
+                          <span className="text-stone-600">{formatBigram(b, comboMetricWpm)}</span>
+                          {onStartBigramDrill && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => onStartBigramDrill(b.bigram, h.targetWPM, h.id)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wide transition-colors shrink-0 ${
+                                  b.drillPassed === true ? 'bg-emerald-500 hover:bg-emerald-600 text-white' :
+                                  b.drillPassed === false ? 'bg-red-500 hover:bg-red-600 text-white' :
+                                  'bg-slate-200 hover:bg-slate-300 text-slate-600'
+                                }`}
+                              >
+                                Practice
+                              </button>
+                              {formatDrillResult(b, comboMetricWpm) != null && (
+                                <span className="text-[10px] font-mono text-stone-400 shrink-0">{formatDrillResult(b, comboMetricWpm)}</span>
+                              )}
+                            </>
+                          )}
                         </li>
                       ))
                     ) : (
