@@ -1151,22 +1151,20 @@ function Library({ user, targetWPM, setTargetWPM, onStart }) {
         onClick={() => onStart(p)} 
         className="aspect-square bg-white rounded-2xl p-6 border border-stone-200 hover:shadow-lg transition-all cursor-pointer group shadow-sm flex flex-col active:scale-[0.98] relative"
       >
-        <div className="flex justify-between items-start mb-2 pr-1 gap-2">
-          <div ref={titleContainerRef} className="flex-1 min-w-0 overflow-hidden">
-            {isBible && (
-              <span ref={measureRef} aria-hidden className="font-serif font-black text-sm whitespace-nowrap absolute opacity-0 pointer-events-none" style={{ left: -9999 }}>
-                {p.reference}
-              </span>
-            )}
-            <h4 className="font-serif font-black text-sm group-hover:text-amber-600 transition-colors line-clamp-1 truncate" title={p.reference}>
-              {p.translation === 'Quote' ? p.reference : (useAbbrev ? abbreviateReference(p.reference) : p.reference)}
-            </h4>
-          </div>
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-            <button onClick={(e) => toggleFavorite(e, p)} className="p-1 text-stone-300 hover:text-amber-500">
+        <div ref={titleContainerRef} className="relative mb-2 min-h-[1.5rem]">
+          {isBible && (
+            <span ref={measureRef} aria-hidden className="font-serif font-black text-sm whitespace-nowrap absolute opacity-0 pointer-events-none" style={{ left: -9999 }}>
+              {p.reference}
+            </span>
+          )}
+          <h4 className="font-serif font-black text-sm group-hover:text-amber-600 transition-colors line-clamp-1 truncate pr-0" title={p.reference}>
+            {p.translation === 'Quote' ? p.reference : (useAbbrev ? abbreviateReference(p.reference) : p.reference)}
+          </h4>
+          <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-r from-white/80 to-white pl-6 pr-0.5 rounded-r pointer-events-none group-hover:pointer-events-auto">
+            <button type="button" onClick={(e) => { e.stopPropagation(); toggleFavorite(e, p); }} className="p-1 text-stone-300 hover:text-amber-500 rounded">
               <Heart className={`w-3.5 h-3.5 ${p.favorite ? 'fill-amber-500 text-amber-500' : ''}`} />
             </button>
-            <button onClick={(e) => deletePassage(e, p.id)} className="p-1 text-stone-300 hover:text-red-500">
+            <button type="button" onClick={(e) => { e.stopPropagation(); deletePassage(e, p.id); }} className="p-1 text-stone-300 hover:text-red-500 rounded">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
