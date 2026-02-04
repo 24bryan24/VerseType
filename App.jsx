@@ -187,6 +187,7 @@ export default function App() {
   const [drillBigram, setDrillBigram] = useState(null);
   const [drillTargetWPM, setDrillTargetWPM] = useState(60);
   const [drillHistoryId, setDrillHistoryId] = useState(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
   useEffect(() => {
     const script = document.createElement('script');
@@ -252,7 +253,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#faf9f6] text-stone-900 font-sans selection:bg-amber-200">
+    <div className="min-h-screen flex flex-col bg-[#faf9f6] text-stone-900 font-sans selection:bg-amber-200">
       <header className="bg-white border-b border-stone-200 sticky top-0 z-50 px-4 py-3">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 cursor-pointer group shrink-0" onClick={() => setView('library')}>
@@ -274,7 +275,17 @@ export default function App() {
           </nav>
         </div>
       </header>
-      <main className="max-w-[1600px] mx-auto p-4 md:p-6">{renderView()}</main>
+      <main className="flex-grow max-w-[1600px] w-full mx-auto p-4 md:p-6">{renderView()}</main>
+      <footer className="max-w-[1600px] mx-auto px-4 md:px-6 py-6 mt-auto border-t border-stone-100">
+        <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-stone-400">
+          <button type="button" onClick={() => setShowFeedbackModal(true)} className="hover:text-amber-600 transition font-medium">Have a suggestion?</button>
+          <span className="text-stone-300">·</span>
+          <a href="https://versevault-app.web.app" target="_blank" rel="noopener noreferrer" className="hover:text-amber-600 transition font-medium">VerseVault</a>
+          <span className="text-stone-300">·</span>
+          <a href="https://verseaxis.web.app" target="_blank" rel="noopener noreferrer" className="hover:text-amber-600 transition font-medium">VerseAxis</a>
+        </div>
+      </footer>
+      <FeedbackModal open={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} />
     </div>
   );
 }
@@ -290,6 +301,99 @@ function NavBtn({ active, onClick, icon, label }) {
       {icon}
       <span className="hidden lg:inline">{label}</span>
     </button>
+  );
+}
+
+const FORMSPREE_FEEDBACK_ID = import.meta.env.VITE_FORMSPREE_FEEDBACK_ID;
+
+function FeedbackModal({ open, onClose }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [file, setFile] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!FORMSPREE_FEEDBACK_ID) {
+      setError('Feedback form is not configured. Add VITE_FORMSPREE_FEEDBACK_ID to your .env');
+      return;
+    }
+    setError(null);
+    setSending(true);
+    const formData = new FormData();
+    formData.append('name', name.trim());
+    formData.append('email', email.trim());
+    formData.append('message', message.trim());
+    formData.append('_subject', 'VerseType feedback / suggestion');
+    if (file) formData.append('photo', file);
+    try {
+      const res = await fetch(`https://formspree.io/f/${FORMSPREE_FEEDBACK_ID}`, {
+        method: 'POST',
+        body: formData,
+        headers: { Accept: 'application/json' }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data?.error || (res.status === 404 ? 'Invalid form ID. Check VITE_FORMSPREE_FEEDBACK_ID in .env' : res.status === 422 ? 'Please check your entries and try again.' : `Submission failed (${res.status}). Try again.`);
+        console.error('Formspree error:', res.status, data);
+        throw new Error(msg);
+      }
+      setSent(true);
+      setName('');
+      setEmail('');
+      setMessage('');
+      setFile(null);
+      setTimeout(() => { setSent(false); onClose(); }, 2000);
+    } catch (err) {
+      setError(err?.message || 'Something went wrong. Please try again.');
+      console.error('Feedback submit error:', err);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleBackdropClick = (e) => { if (e.target === e.currentTarget) onClose(); };
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={handleBackdropClick}>
+      <div className="bg-white rounded-2xl shadow-xl border border-stone-200 w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between">
+          <h3 className="text-lg font-black text-stone-800">Send feedback</h3>
+          <button type="button" onClick={onClose} className="text-stone-400 hover:text-stone-600 p-1" aria-label="Close">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {!FORMSPREE_FEEDBACK_ID && (
+            <p className="text-amber-700 text-sm bg-amber-50 border border-amber-200 rounded-lg p-3">Add VITE_FORMSPREE_FEEDBACK_ID to your .env to receive submissions by email.</p>
+          )}
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+          {sent && <p className="text-emerald-600 text-sm font-medium">Thanks! We&apos;ll review your feedback.</p>}
+          <div>
+            <label className="block text-xs font-bold uppercase text-stone-500 mb-1">Name</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required className="w-full px-3 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none" placeholder="Your name" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold uppercase text-stone-500 mb-1">Email (optional)</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none" placeholder="you@example.com" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold uppercase text-stone-500 mb-1">Details</label>
+            <textarea value={message} onChange={(e) => setMessage(e.target.value)} required rows={4} className="w-full px-3 py-2 rounded-xl border border-stone-200 focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none resize-none" placeholder="Bug report or feature idea..." />
+          </div>
+          <div>
+            <label className="block text-xs font-bold uppercase text-stone-500 mb-1">Attach a photo (optional)</label>
+            <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] || null)} className="w-full text-sm text-stone-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-amber-50 file:text-amber-700 file:font-bold" />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-stone-200 font-bold text-stone-600 hover:bg-stone-50">Cancel</button>
+            <button type="submit" disabled={sending} className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold disabled:opacity-50">{sending ? 'Sending…' : 'Send'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
