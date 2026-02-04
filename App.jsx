@@ -21,6 +21,7 @@ import {
   Flame,
   Sparkles,
   Plus,
+  Minus,
   Check,
   ArrowRight
 } from 'lucide-react';
@@ -789,49 +790,62 @@ function TypingEngine({ passage, user, targetWPM, setTargetWPM, onBack }) {
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Practice Header */}
       <div className="bg-white rounded-[2rem] shadow-2xl border border-stone-100 overflow-hidden">
-        <div className="px-8 py-4 flex justify-between items-center border-b border-stone-50">
-          <div className="flex items-center gap-6">
-            <button onClick={onBack} className="flex items-center gap-2 text-stone-400 font-bold hover:text-stone-900 transition">
-              <ChevronLeft className="w-5 h-5" /> Exit
-            </button>
-            <div className="flex items-center gap-3">
-              <button 
-                onClick={() => setIsPaused(!isPaused)} 
-                className={`flex items-center gap-2 font-bold transition ${isPaused ? 'text-amber-500' : 'text-stone-400 hover:text-stone-900'}`}
-              >
-                {isPaused ? <Play className="w-4 h-4 fill-amber-500" /> : <Pause className="w-4 h-4" />}
-                {isPaused ? 'Resume' : 'Pause'}
+        <div className="px-8 py-4 flex items-center border-b border-stone-50 relative">
+          <div className="flex-1 flex justify-start min-w-0">
+            <div className="flex items-center gap-6">
+              <button onClick={onBack} className="flex items-center gap-2 text-stone-400 font-bold hover:text-stone-900 transition shrink-0">
+                <ChevronLeft className="w-5 h-5" /> Exit
               </button>
-              <div className="hidden md:flex items-center gap-1 text-[9px] font-black text-stone-300 bg-stone-50 px-2 py-1 rounded-lg border border-stone-100 uppercase tracking-widest select-none">
-                <span>Caps + Space</span>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setIsPaused(!isPaused)} 
+                  className={`flex items-center gap-2 font-bold transition shrink-0 ${isPaused ? 'text-amber-500' : 'text-stone-400 hover:text-stone-900'}`}
+                >
+                  {isPaused ? <Play className="w-4 h-4 fill-amber-500" /> : <Pause className="w-4 h-4" />}
+                  {isPaused ? 'Resume' : 'Pause'}
+                </button>
+                <div className="hidden md:flex items-center gap-1 text-[9px] font-black text-stone-300 bg-stone-50 px-2 py-1 rounded-lg border border-stone-100 uppercase tracking-widest select-none shrink-0">
+                  <span>Caps + Space</span>
+                </div>
               </div>
             </div>
           </div>
           
-          <div className="flex gap-8 md:gap-16 items-center">
-             <div className="text-center flex items-center gap-2">
-                <div>
-                  <span className="block text-[10px] font-black text-stone-400 uppercase tracking-tighter">Speed</span>
-                  <span className={`text-xl font-mono font-black ${liveWpm >= targetWPM ? 'text-amber-500' : 'text-stone-800'}`}>{liveWpm} <span className="text-[10px] text-stone-300">/ {targetWPM}</span></span>
-                </div>
+          <div className="flex-1 flex justify-center min-w-0">
+             <div className="relative flex items-center justify-center group/speed">
                 {setTargetWPM && (
-                  <button
-                    type="button"
-                    onClick={() => setTargetWPM(prev => prev >= 195 ? 25 : prev + 5)}
-                    className="shrink-0 w-8 h-8 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 font-bold text-sm leading-none transition-colors active:scale-95"
-                    title="Goal +5 WPM"
-                  >
-                    +5
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setTargetWPM(prev => prev <= 25 ? 195 : prev - 5); }}
+                      className="absolute right-full mr-2 w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-opacity opacity-0 group-hover/speed:opacity-100"
+                      title="Goal −5 WPM"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setTargetWPM(prev => prev >= 195 ? 25 : prev + 5); }}
+                      className="absolute left-full ml-2 w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-opacity opacity-0 group-hover/speed:opacity-100"
+                      title="Goal +5 WPM"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </>
                 )}
-             </div>
-             <div className="text-center">
-                <span className="block text-[10px] font-black text-stone-400 uppercase tracking-tighter">Accuracy</span>
-                <span className="text-xl font-mono font-black text-emerald-500">{liveAccuracy}%</span>
+                <div className="text-center">
+                  <span className="block text-[10px] font-black text-stone-400 uppercase tracking-tighter">Speed</span>
+                  <span className={`text-xl font-mono font-black ${liveWpm >= targetWPM ? 'text-amber-500' : 'text-stone-800'}`}>{liveWpm} <span className="text-lg font-mono font-black text-stone-400">/ {targetWPM}</span></span>
+                </div>
              </div>
           </div>
           
-          <div className="w-20"></div> {/* Spacer for balance */}
+          <div className="flex-1 flex justify-end min-w-0">
+            <div className="text-center">
+              <span className="block text-[10px] font-black text-stone-400 uppercase tracking-tighter">Accuracy</span>
+              <span className="text-xl font-mono font-black text-emerald-500">{liveAccuracy}%</span>
+            </div>
+          </div>
         </div>
 
         {/* Practice Body */}
