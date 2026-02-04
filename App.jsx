@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
-  BookOpen, 
   Search, 
+  Keyboard,
   List, 
   Target, 
   Trophy, 
@@ -43,6 +43,38 @@ const BIBLE_BOOKS = [
   "Philippians", "Colossians", "1 Thessalonians", "2 Thessalonians", "1 Timothy", "2 Timothy", "Titus", "Philemon", 
   "Hebrews", "James", "1 Peter", "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation"
 ];
+
+const BIBLE_BOOK_ABBREV = {
+  "Genesis": "Gen", "Exodus": "Ex", "Leviticus": "Lev", "Numbers": "Num", "Deuteronomy": "Deut",
+  "Joshua": "Josh", "Judges": "Judg", "Ruth": "Ruth", "1 Samuel": "1 Sam", "2 Samuel": "2 Sam",
+  "1 Kings": "1 Kgs", "2 Kings": "2 Kgs", "1 Chronicles": "1 Chr", "2 Chronicles": "2 Chr",
+  "Ezra": "Ezra", "Nehemiah": "Neh", "Esther": "Esth", "Job": "Job", "Psalms": "Ps", "Proverbs": "Prov",
+  "Ecclesiastes": "Eccl", "Song of Solomon": "Song", "Isaiah": "Isa", "Jeremiah": "Jer",
+  "Lamentations": "Lam", "Ezekiel": "Ezek", "Daniel": "Dan", "Hosea": "Hos", "Joel": "Joel",
+  "Amos": "Amos", "Obadiah": "Obad", "Jonah": "Jonah", "Micah": "Mic", "Nahum": "Nah",
+  "Habakkuk": "Hab", "Zephaniah": "Zeph", "Haggai": "Hag", "Zechariah": "Zech", "Malachi": "Mal",
+  "Matthew": "Matt", "Mark": "Mark", "Luke": "Luke", "John": "John", "Acts": "Acts",
+  "Romans": "Rom", "1 Corinthians": "1 Cor", "2 Corinthians": "2 Cor", "Galatians": "Gal",
+  "Ephesians": "Eph", "Philippians": "Phil", "Colossians": "Col",
+  "1 Thessalonians": "1 Thess", "2 Thessalonians": "2 Thess", "1 Timothy": "1 Tim", "2 Timothy": "2 Tim",
+  "Titus": "Titus", "Philemon": "Phlm", "Hebrews": "Heb", "James": "Jas",
+  "1 Peter": "1 Pet", "2 Peter": "2 Pet", "1 John": "1 John", "2 John": "2 John", "3 John": "3 John",
+  "Jude": "Jude", "Revelation": "Rev"
+};
+
+const BIBLE_BOOKS_LONGEST_FIRST = [...BIBLE_BOOKS].sort((a, b) => b.length - a.length);
+
+function abbreviateReference(ref) {
+  if (!ref || typeof ref !== 'string') return ref;
+  const s = ref.trim();
+  for (const book of BIBLE_BOOKS_LONGEST_FIRST) {
+    if (s === book || s.startsWith(book + ' ')) {
+      const abbrev = BIBLE_BOOK_ABBREV[book] || book;
+      return abbrev + s.slice(book.length);
+    }
+  }
+  return ref;
+}
 
 const BIBLE_DATA = {
   "Genesis": [31, 25, 24, 26, 32, 22, 24, 22, 29, 32, 32, 20, 18, 24, 21, 16, 27, 33, 38, 18, 34, 24, 67, 67, 34, 35, 46, 22, 35, 43, 55, 32, 20, 31, 29, 43, 36, 30, 23, 23, 57, 38, 34, 34, 28, 34, 31, 22, 33, 26],
@@ -175,6 +207,18 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__f
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    setMatches(m.matches);
+    const handler = (e) => setMatches(e.matches);
+    m.addEventListener('change', handler);
+    return () => m.removeEventListener('change', handler);
+  }, [query]);
+  return matches;
+}
 // Use system app ID if available, otherwise default to a safe generic ID
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'scripturetype';
 
@@ -254,24 +298,19 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#faf9f6] text-stone-900 font-sans selection:bg-amber-200">
-      <header className="bg-white border-b border-stone-200 sticky top-0 z-50 px-4 py-3">
-        <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 cursor-pointer group shrink-0" onClick={() => setView('library')}>
-            <div className="bg-amber-500 p-1.5 rounded-lg text-white">
-              <BookOpen className="w-5 h-5" />
-            </div>
-            <h1 className="text-lg font-black tracking-tight group-hover:text-amber-600 transition hidden sm:block">VerseType</h1>
+      <header className="bg-white border-b border-stone-200 sticky top-0 z-50 px-2 py-2 sm:px-4 sm:py-3">
+        <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-2 sm:gap-4 min-w-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
+            <UserButton afterSignOutUrl="/" />
+            <h1 className="text-lg font-black tracking-tight hidden sm:block cursor-pointer group hover:text-amber-600 transition" onClick={() => setView('library')}>VerseType</h1>
           </div>
           
           <GlobalNavSearch user={user} translation={preferredTranslation} onImport={() => setView('library')} />
           
-          <nav className="flex items-center gap-1 shrink-0">
-            <NavBtn active={view === 'library'} onClick={() => setView('library')} icon={<List className="w-5 h-5"/>} label="Library" />
-            <NavBtn active={view === 'achievements'} onClick={() => setView('achievements')} icon={<Trophy className="w-5 h-5"/>} label="Stats" />
-            <NavBtn active={view === 'quotes'} onClick={() => setView('quotes')} icon={<Quote className="w-5 h-5"/>} label="Quotes" />
-            <div className="ml-1 flex items-center">
-              <UserButton afterSignOutUrl="/" />
-            </div>
+          <nav className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+            <NavBtn active={view === 'library'} onClick={() => setView('library')} icon={<List className="w-4 h-4 sm:w-5 sm:h-5"/>} label="Library" />
+            <NavBtn active={view === 'achievements'} onClick={() => setView('achievements')} icon={<Trophy className="w-4 h-4 sm:w-5 sm:h-5"/>} label="Stats" />
+            <NavBtn active={view === 'quotes'} onClick={() => setView('quotes')} icon={<Quote className="w-4 h-4 sm:w-5 sm:h-5"/>} label="Quotes" />
           </nav>
         </div>
       </header>
@@ -294,7 +333,7 @@ function NavBtn({ active, onClick, icon, label }) {
   return (
     <button 
       onClick={onClick}
-      className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all font-bold text-sm ${
+      className={`flex items-center gap-1.5 sm:gap-2 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg sm:rounded-xl transition-all font-bold text-sm ${
         active ? 'bg-amber-50 text-amber-600' : 'text-stone-500 hover:bg-stone-100'
       }`}
     >
@@ -412,6 +451,24 @@ function GlobalNavSearch({ user, translation, onImport }) {
 
   const chaptersInBook = BIBLE_DATA[book] || [];
   const maxVerses = chaptersInBook[parseInt(chapter) - 1] || 1;
+  const bookSelectContainerRef = useRef(null);
+  const bookMeasureRef = useRef(null);
+  const [useAbbrevBookInSearch, setUseAbbrevBookInSearch] = useState(false);
+
+  useEffect(() => {
+    if (!bookSelectContainerRef.current || !bookMeasureRef.current) return;
+    const check = () => {
+      if (!bookSelectContainerRef.current || !bookMeasureRef.current) return;
+      const containerWidth = bookSelectContainerRef.current.clientWidth;
+      const fullWidth = bookMeasureRef.current.scrollWidth;
+      setUseAbbrevBookInSearch(fullWidth > containerWidth);
+    };
+    check();
+    const el = bookSelectContainerRef.current;
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [book]);
 
   useEffect(() => {
     if (parseInt(chapter) > chaptersInBook.length) {
@@ -488,65 +545,70 @@ function GlobalNavSearch({ user, translation, onImport }) {
   };
 
   return (
-    <div className="flex-grow max-w-xl relative">
-      <div className="flex items-center bg-stone-100 rounded-2xl p-1 border border-stone-200 shadow-inner">
+    <div className="flex-grow max-w-xl relative min-w-0">
+      <div className="flex items-center bg-stone-100 rounded-xl sm:rounded-2xl p-0.5 sm:p-1 border border-stone-200 shadow-inner">
         <button 
           onClick={() => setIsManual(!isManual)} 
-          className="px-3 py-1.5 text-stone-400 hover:text-amber-600 transition border-r border-stone-200 flex items-center justify-center group"
+          className="px-2 py-1 sm:px-3 sm:py-1.5 text-stone-400 hover:text-amber-600 transition border-r border-stone-200 flex items-center justify-center group shrink-0"
         >
           {isManual ? (
-            <ChevronDown className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 group-hover:scale-110 transition-transform" />
           ) : (
-            <Search className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            <Keyboard className="w-3.5 h-3.5 sm:w-4 sm:h-4 group-hover:scale-110 transition-transform" />
           )}
         </button>
         
         {isManual ? (
           <input 
             type="text" placeholder="Type verse (e.g. John 3:16)..." 
-            className="flex-grow bg-transparent px-3 py-1.5 text-xs outline-none font-bold"
+            className="flex-grow min-w-0 bg-transparent px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs outline-none font-bold"
             value={manualQuery} onChange={(e) => setManualQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && performSearch()}
           />
         ) : (
-          <div className="flex-grow flex items-center gap-0.5 px-2">
-            <select 
-              value={book} 
-              onChange={e => setBook(e.target.value)} 
-              className="bg-transparent text-[11px] font-black outline-none cursor-pointer appearance-none px-1"
-            >
-              {BIBLE_BOOKS.map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
-            <div className="flex items-center gap-0.5">
+          <div className="flex-grow flex items-center gap-0 min-w-0 px-1 sm:px-2">
+            <div ref={bookSelectContainerRef} className="min-w-0 flex-1 overflow-hidden flex items-center">
+              <span ref={bookMeasureRef} aria-hidden className="text-[10px] sm:text-[11px] font-black whitespace-nowrap absolute opacity-0 pointer-events-none" style={{ left: -9999 }}>
+                {book}
+              </span>
+              <select 
+                value={book} 
+                onChange={e => setBook(e.target.value)} 
+                className="bg-transparent text-[10px] sm:text-[11px] font-black outline-none cursor-pointer appearance-none px-0.5 min-w-0 w-full max-w-full"
+              >
+                {BIBLE_BOOKS.map(b => <option key={b} value={b}>{useAbbrevBookInSearch ? (BIBLE_BOOK_ABBREV[b] || b) : b}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-0 shrink-0">
               <select 
                 value={chapter} 
                 onChange={e => setChapter(e.target.value)} 
-                className="bg-white/50 rounded-md w-8 text-[11px] font-black text-center outline-none py-1 appearance-none cursor-pointer"
+                className="bg-white/50 rounded w-6 sm:w-8 text-[10px] sm:text-[11px] font-black text-center outline-none py-0.5 sm:py-1 appearance-none cursor-pointer"
               >
                 {Array.from({length: chaptersInBook.length}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
               </select>
-              <span className="text-stone-300 font-bold">:</span>
+              <span className="text-stone-300 font-bold text-[10px] sm:text-[11px]">:</span>
               <select 
                 value={startV} 
-                onChange={e => setStartV(e.target.value)} 
-                className="bg-white/50 rounded-md w-8 text-[11px] font-black text-center outline-none py-1 appearance-none cursor-pointer"
+                onChange={e => { const v = e.target.value; setStartV(v); setEndV(v); }} 
+                className="bg-white/50 rounded w-6 sm:w-8 text-[10px] sm:text-[11px] font-black text-center outline-none py-0.5 sm:py-1 appearance-none cursor-pointer"
               >
                 {Array.from({length: maxVerses}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
               </select>
-              <span className="text-stone-300 font-bold">-</span>
+              <span className="text-stone-300 font-bold text-[10px] sm:text-[11px]">-</span>
               <select 
                 value={endV} 
                 onChange={e => setEndV(e.target.value)} 
-                className="bg-white/50 rounded-md w-8 text-[11px] font-black text-center outline-none py-1 appearance-none cursor-pointer"
+                className="bg-white/50 rounded w-6 sm:w-8 text-[10px] sm:text-[11px] font-black text-center outline-none py-0.5 sm:py-1 appearance-none cursor-pointer"
               >
                 {Array.from({length: maxVerses}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
               </select>
               <button 
                 onClick={selectWholeChapter}
                 title="Select Full Chapter"
-                className="ml-1.5 p-1.5 rounded-md hover:bg-white/80 text-amber-600 transition-colors"
+                className="ml-0.5 sm:ml-1.5 p-1 sm:p-1.5 rounded hover:bg-white/80 text-amber-600 transition-colors shrink-0"
               >
-                <Maximize2 className="w-3.5 h-3.5" />
+                <Maximize2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               </button>
             </div>
           </div>
@@ -555,9 +617,10 @@ function GlobalNavSearch({ user, translation, onImport }) {
         <button 
           onClick={performSearch} 
           disabled={loading}
-          className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all shadow-sm flex items-center gap-2"
+          className="bg-amber-500 hover:bg-amber-600 text-white p-1.5 sm:p-2 rounded-lg sm:rounded-xl transition-all shadow-sm flex items-center justify-center shrink-0"
+          title="Search"
         >
-          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : "Search"}
+          {loading ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin"/> : <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
         </button>
       </div>
 
@@ -1063,15 +1126,43 @@ function Library({ user, targetWPM, setTargetWPM, onStart }) {
   const PassageCard = ({ p }) => {
     const attempts = history.filter(h => h.passageId === p.id);
     const best = attempts.length > 0 ? Math.max(...attempts.map(a => a.wpm)) : 0;
-    
+    const titleContainerRef = useRef(null);
+    const measureRef = useRef(null);
+    const [useAbbrev, setUseAbbrev] = useState(false);
+    const isBible = p.translation !== 'Quote';
+
+    useEffect(() => {
+      if (!isBible || !titleContainerRef.current || !measureRef.current) return;
+      const check = () => {
+        if (!titleContainerRef.current || !measureRef.current) return;
+        const containerWidth = titleContainerRef.current.clientWidth;
+        const fullWidth = measureRef.current.scrollWidth;
+        setUseAbbrev(fullWidth > containerWidth);
+      };
+      check();
+      const el = titleContainerRef.current;
+      const ro = new ResizeObserver(check);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [p.reference, isBible]);
+
     return (
       <div 
         onClick={() => onStart(p)} 
         className="aspect-square bg-white rounded-2xl p-6 border border-stone-200 hover:shadow-lg transition-all cursor-pointer group shadow-sm flex flex-col active:scale-[0.98] relative"
       >
-        <div className="flex justify-between items-start mb-2 pr-1">
-          <h4 className="font-serif font-black text-sm group-hover:text-amber-600 transition-colors line-clamp-1">{p.reference}</h4>
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex justify-between items-start mb-2 pr-1 gap-2">
+          <div ref={titleContainerRef} className="flex-1 min-w-0 overflow-hidden">
+            {isBible && (
+              <span ref={measureRef} aria-hidden className="font-serif font-black text-sm whitespace-nowrap absolute opacity-0 pointer-events-none" style={{ left: -9999 }}>
+                {p.reference}
+              </span>
+            )}
+            <h4 className="font-serif font-black text-sm group-hover:text-amber-600 transition-colors line-clamp-1 truncate" title={p.reference}>
+              {p.translation === 'Quote' ? p.reference : (useAbbrev ? abbreviateReference(p.reference) : p.reference)}
+            </h4>
+          </div>
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
             <button onClick={(e) => toggleFavorite(e, p)} className="p-1 text-stone-300 hover:text-amber-500">
               <Heart className={`w-3.5 h-3.5 ${p.favorite ? 'fill-amber-500 text-amber-500' : ''}`} />
             </button>
