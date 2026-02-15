@@ -5,7 +5,6 @@
   "targets": {
     "scripturetype": {
       "hosting": {
-        "public": "scripturetype",
         "editor": "editor-scripturetype"
       }
     }
