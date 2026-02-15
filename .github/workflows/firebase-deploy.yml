@@ -8,14 +8,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      
+      # 1. Build your app
       - run: npm install && npm run build
         env:
           VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
           VITE_FORMSPREE_FEEDBACK_ID: ${{ secrets.VITE_FORMSPREE_FEEDBACK_ID }}
-      - uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.SCRIPTURETYPE }}'
-          channelId: live
-          projectId: scripturetype
+
+      # 2. Deploy (Manual CLI Method to fix Target Mapping)
+      - name: Deploy to Firebase
+        run: |
+          # Install Firebase Tools
+          npm install -g firebase-tools
+
+          # Create a temporary Service Account file from your Secret
+          echo '${{ secrets.SCRIPTURETYPE }}' > service-account.json
+          export GOOGLE_APPLICATION_CREDENTIALS=service-account.json
+
+          # --- THE FIX: Map your Nicknames to Real Site IDs ---
+          # Mapping "public" -> "scripturetype"
+          npx firebase target:apply hosting public scripturetype
+          
+          # Mapping "editor" -> "editor-scripturetype"
+          # (Check your Firebase Console for the exact ID, e.g., editor-scripturetype)
+          npx firebase target:apply hosting editor editor-scripturetype
+
+          # Deploy everything using the targets
+          npx firebase deploy --only hosting --project scripturetype
