@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.60.0",
+    "@webcontainer/api": "^1.6.1",
     "canvas-confetti": "^1.6.0",
     "firebase": "^11.1.0",
     "lucide-react": "^0.284.0",

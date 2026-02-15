@@ -25,6 +25,14 @@ import {
   Check,
   ArrowRight
 } from 'lucide-react';
+import Sandbox from './src/components/Sandbox.jsx';
+import LiveEditButton from './src/components/LiveEditButton.jsx';
+
+function isEditorHost() {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return h === 'editor.localhost' || h.startsWith('editor.') || h.startsWith('editor-');
+}
 import { useUser } from '@clerk/clerk-react';
 import { SignIn } from '@clerk/clerk-react';
 import { UserButton } from '@clerk/clerk-react';
@@ -224,6 +232,8 @@ function useMediaQuery(query) {
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'scripturetype';
 
 export default function App() {
+  if (isEditorHost()) return <Sandbox />;
+
   const { isLoaded, isSignedIn, user: clerkUser } = useUser();
   const [view, setView] = useState('library');
   const [activePassage, setActivePassage] = useState(null);
@@ -318,6 +328,8 @@ export default function App() {
       <main className="flex-grow max-w-[1600px] w-full mx-auto p-4 md:p-6">{renderView()}</main>
       <footer className="max-w-[1600px] mx-auto px-4 md:px-6 py-6 mt-auto border-t border-stone-100">
         <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-stone-400">
+          <LiveEditButton />
+          <span className="text-stone-300">·</span>
           <button type="button" onClick={() => setShowFeedbackModal(true)} className="hover:text-amber-600 transition font-medium">Have a suggestion?</button>
           <span className="text-stone-300">·</span>
           <a href="https://versevault-app.web.app" target="_blank" rel="noopener noreferrer" className="hover:text-amber-600 transition font-medium">VerseVault</a>
