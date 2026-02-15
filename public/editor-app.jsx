@@ -25,9 +25,7 @@ import {
   Check,
   ArrowRight
 } from 'lucide-react';
-import { useUser } from '@clerk/clerk-react';
-import { SignIn } from '@clerk/clerk-react';
-import { UserButton } from '@clerk/clerk-react';
+import { useUser, SignIn, UserButton, ClerkProvider } from '@clerk/clerk-react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, query, onSnapshot, deleteDoc, doc, updateDoc, serverTimestamp, orderBy, limit, getDocs, getDoc, where } from 'firebase/firestore';
 
@@ -223,7 +221,7 @@ function useMediaQuery(query) {
 // Use system app ID if available, otherwise default to a safe generic ID
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'scripturetype';
 
-export default function App() {
+function MainSite() {
   const { isLoaded, isSignedIn, user: clerkUser } = useUser();
   const [view, setView] = useState('library');
   const [activePassage, setActivePassage] = useState(null);
@@ -329,6 +327,15 @@ export default function App() {
     </div>
   );
 }
+export default function App() {
+  return (
+    <ClerkProvider publishableKey={typeof import.meta !== 'undefined' && import.meta.env?.VITE_CLERK_PUBLISHABLE_KEY || ''}>
+      <MainSite />
+    </ClerkProvider>
+  );
+}
+
+
 
 function NavBtn({ active, onClick, icon, label }) {
   return (
