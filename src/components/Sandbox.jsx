@@ -54,11 +54,30 @@ const LOADING_STEPS = {
   serve: 'Starting server…',
 };
 
+const SIMPLE_EDITOR_DEFAULT_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Preview</title>
+  <style>
+    body { font-family: system-ui; padding: 2rem; max-width: 600px; margin: 0 auto; color: #444; }
+    h1 { color: #b45309; }
+  </style>
+</head>
+<body>
+  <h1>Live Edit</h1>
+  <p>Edit the code on the left. This preview updates as you type.</p>
+  <p>HTML, CSS, and JavaScript only — no Node or npm.</p>
+</body>
+</html>`;
+
 export default function Sandbox() {
   const [status, setStatus] = useState(() => (isWebContainerSupported() ? 'loading' : 'fallback'));
   const [loadingStep, setLoadingStep] = useState(LOADING_STEPS.boot);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [simpleEditorHtml, setSimpleEditorHtml] = useState(SIMPLE_EDITOR_DEFAULT_HTML);
   const iframeRef = useRef(null);
   const resolvedRef = useRef(false);
 
@@ -69,7 +88,7 @@ export default function Sandbox() {
     let unsubPort = () => {};
     let timeoutId = null;
 
-    const TIMEOUT_MS = 120000; // 2 minutes
+    const TIMEOUT_MS = 180000; // 3 minutes
     timeoutId = setTimeout(() => {
       if (mounted && !resolvedRef.current) {
         setErrorMessage('The sandbox is taking too long to start. Try refreshing the page. If it still doesn’t load, use Chrome or Edge and ensure you’re on the editor site (e.g. editor-scripturetype.web.app).');
@@ -154,7 +173,7 @@ export default function Sandbox() {
             <p className="text-sm">This may take a minute or two on first load.</p>
           </div>
         )}
-        {status === 'fallback' && (
+        {status === 'fallback' && !isWebContainerSupported() && (
           <div className="flex-1 flex flex-col items-center justify-center gap-6 text-stone-600 max-w-md mx-auto text-center px-4">
             <Globe className="w-14 h-14 text-amber-500" />
             <div className="space-y-2">
@@ -175,21 +194,62 @@ export default function Sandbox() {
             </button>
           </div>
         )}
+        {status === 'fallback' && isWebContainerSupported() && (
+          <div className="flex-1 flex flex-col min-h-0 gap-4">
+            <p className="text-sm text-stone-500 shrink-0">
+              Simple editor — edit HTML, CSS, and JavaScript below. Preview updates as you type.
+            </p>
+            <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="flex flex-col min-h-0 rounded-xl border border-stone-200 bg-white overflow-hidden">
+                <div className="px-3 py-2 border-b border-stone-100 text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                  HTML / CSS / JS
+                </div>
+                <textarea
+                  value={simpleEditorHtml}
+                  onChange={(e) => setSimpleEditorHtml(e.target.value)}
+                  spellCheck={false}
+                  className="flex-1 min-h-[300px] p-4 font-mono text-sm text-stone-800 bg-stone-50/50 resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:ring-inset"
+                  placeholder="Enter full HTML document..."
+                />
+              </div>
+              <div className="flex flex-col min-h-0 rounded-xl border border-stone-200 bg-white overflow-hidden">
+                <div className="px-3 py-2 border-b border-stone-100 text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                  Preview
+                </div>
+                <iframe
+                  title="Live preview"
+                  srcDoc={simpleEditorHtml}
+                  className="flex-1 min-h-[300px] w-full border-0 bg-white"
+                  sandbox="allow-scripts"
+                />
+              </div>
+            </div>
+          </div>
+        )}
         {status === 'error' && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-stone-600 max-w-md mx-auto text-center">
+          <div className="flex-1 flex flex-col items-center justify-center gap-5 text-stone-600 max-w-md mx-auto text-center px-4">
             <AlertCircle className="w-12 h-12 text-amber-500" />
             <p className="font-semibold">Could not start the sandbox</p>
             <p className="text-sm text-stone-500">{errorMessage}</p>
             <p className="text-xs text-stone-400">
               WebContainers require a Chromium-based browser (Chrome, Edge) and the editor subdomain must be served with COEP/COOP headers (e.g. over HTTPS).
             </p>
-            <button
-              type="button"
-              onClick={handleExit}
-              className="mt-2 px-4 py-2 rounded-xl font-bold text-sm text-stone-600 hover:bg-stone-100 transition"
-            >
-              Back to Main Site
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                type="button"
+                onClick={() => setStatus('fallback')}
+                className="px-5 py-2.5 rounded-xl font-bold text-sm bg-amber-500 text-white hover:bg-amber-600 transition"
+              >
+                Use simple editor instead
+              </button>
+              <button
+                type="button"
+                onClick={handleExit}
+                className="px-5 py-2.5 rounded-xl font-bold text-sm text-stone-600 hover:bg-stone-100 border border-stone-200 transition"
+              >
+                Back to Main Site
+              </button>
+            </div>
           </div>
         )}
         {status === 'ready' && (
