@@ -24,24 +24,8 @@ function getMainSiteUrl() {
   return `${protocol}//${mainHost}${hasPort ? `:${port}` : ''}`;
 }
 
+/** Static project: no npm install, just npx serve. Avoids npm registry issues in the container. */
 const DEFAULT_PROJECT = {
-  'package.json': {
-    file: {
-      contents: `{
-  "name": "live-edit-sandbox",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build"
-  },
-  "devDependencies": {
-    "vite": "^5.4.0"
-  }
-}
-`,
-    },
-  },
   'index.html': {
     file: {
       contents: `<!DOCTYPE html>
@@ -52,23 +36,13 @@ const DEFAULT_PROJECT = {
   <title>Live Edit Sandbox</title>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="module" src="/main.js"></script>
-</body>
-</html>
-`,
-    },
-  },
-  'main.js': {
-    file: {
-      contents: `const root = document.getElementById('root');
-root.innerHTML = \`
   <div style="font-family: system-ui; padding: 2rem; max-width: 600px; margin: 0 auto;">
     <h1 style="color: #b45309;">Live Edit Sandbox</h1>
-    <p>This page is running inside a WebContainer — a full Node.js environment in your browser.</p>
-    <p>Edit the files in this project to see changes. You can replace this default project with your own.</p>
+    <p>This page is running inside a WebContainer — a Node.js environment in your browser.</p>
+    <p>Edit files in the project to see changes.</p>
   </div>
-\`;
+</body>
+</html>
 `,
     },
   },
@@ -77,8 +51,7 @@ root.innerHTML = \`
 const LOADING_STEPS = {
   boot: 'Booting WebContainer…',
   mount: 'Loading project…',
-  install: 'Installing dependencies…',
-  dev: 'Starting dev server…',
+  serve: 'Starting server…',
 };
 
 export default function Sandbox() {
@@ -133,19 +106,8 @@ export default function Sandbox() {
         await instance.mount(DEFAULT_PROJECT);
         if (!mounted) return;
 
-        setLoadingStep(LOADING_STEPS.install);
-        const installProcess = await instance.spawn('npm', ['install']);
-        const installExitCode = await installProcess.exit;
-        if (!mounted) return;
-        if (installExitCode !== 0) {
-          resolvedRef.current = true;
-          setErrorMessage('npm install failed. Try refreshing.');
-          setStatus('error');
-          return;
-        }
-
-        setLoadingStep(LOADING_STEPS.dev);
-        await instance.spawn('npm', ['run', 'dev']);
+        setLoadingStep(LOADING_STEPS.serve);
+        await instance.spawn('npx', ['-y', 'serve', '.', '-l', '3000']);
         if (mounted && status === 'loading' && !previewUrl) setStatus('ready');
       } catch (err) {
         if (mounted) {
