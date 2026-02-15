@@ -73,7 +73,8 @@ const SIMPLE_EDITOR_DEFAULT_HTML = `<!DOCTYPE html>
 </html>`;
 
 export default function Sandbox() {
-  const [status, setStatus] = useState(() => (isWebContainerSupported() ? 'loading' : 'fallback'));
+  const [status, setStatus] = useState(() => (isWebContainerSupported() ? 'fallback' : 'fallback'));
+  const [tryWebContainer, setTryWebContainer] = useState(false);
   const [loadingStep, setLoadingStep] = useState(LOADING_STEPS.boot);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
@@ -82,7 +83,8 @@ export default function Sandbox() {
   const resolvedRef = useRef(false);
 
   useEffect(() => {
-    if (!isWebContainerSupported()) return;
+    if (!isWebContainerSupported() || !tryWebContainer) return;
+    resolvedRef.current = false;
     let mounted = true;
     let unsubServerReady = () => {};
     let unsubPort = () => {};
@@ -144,7 +146,7 @@ export default function Sandbox() {
       unsubServerReady();
       unsubPort();
     };
-  }, []);
+  }, [tryWebContainer]);
 
   useEffect(() => {
     if (previewUrl && status === 'loading') setStatus('ready');
@@ -196,9 +198,18 @@ export default function Sandbox() {
         )}
         {status === 'fallback' && isWebContainerSupported() && (
           <div className="flex-1 flex flex-col min-h-0 gap-4">
-            <p className="text-sm text-stone-500 shrink-0">
-              Simple editor — edit HTML, CSS, and JavaScript below. Preview updates as you type.
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <p className="text-sm text-stone-500">
+                Simple editor — edit HTML, CSS, and JavaScript below. Preview updates as you type.
+              </p>
+              <button
+                type="button"
+                onClick={() => { setStatus('loading'); setTryWebContainer(true); }}
+                className="text-sm font-medium text-amber-600 hover:text-amber-700 whitespace-nowrap"
+              >
+                Try full Node.js sandbox →
+              </button>
+            </div>
             <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="flex flex-col min-h-0 rounded-xl border border-stone-200 bg-white overflow-hidden">
                 <div className="px-3 py-2 border-b border-stone-100 text-xs font-semibold text-stone-500 uppercase tracking-wider">
