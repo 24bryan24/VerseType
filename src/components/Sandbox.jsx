@@ -74,51 +74,83 @@ root.innerHTML = \`
   },
 };
 
+const LOADING_STEPS = {
+  boot: 'Booting WebContainer…',
+  mount: 'Loading project…',
+  install: 'Installing dependencies…',
+  dev: 'Starting dev server…',
+};
+
 export default function Sandbox() {
-  const [status, setStatus] = useState(() => (isWebContainerSupported() ? 'loading' : 'unsupported')); // 'loading' | 'ready' | 'error' | 'unsupported'
+  const [status, setStatus] = useState(() => (isWebContainerSupported() ? 'loading' : 'fallback'));
+  const [loadingStep, setLoadingStep] = useState(LOADING_STEPS.boot);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
   const iframeRef = useRef(null);
+  const resolvedRef = useRef(false);
 
   useEffect(() => {
     if (!isWebContainerSupported()) return;
     let mounted = true;
-    let unsubscribe = () => {};
+    let unsubServerReady = () => {};
+    let unsubPort = () => {};
+    let timeoutId = null;
+
+    const TIMEOUT_MS = 120000; // 2 minutes
+    timeoutId = setTimeout(() => {
+      if (mounted && !resolvedRef.current) {
+        setErrorMessage('The sandbox is taking too long to start. Try refreshing the page. If it still doesn’t load, use Chrome or Edge and ensure you’re on the editor site (e.g. editor-scripturetype.web.app).');
+        setStatus('error');
+      }
+    }, TIMEOUT_MS);
 
     async function start() {
       try {
+        setLoadingStep(LOADING_STEPS.boot);
         const instance = await WebContainer.boot();
         if (!mounted) return;
 
-        unsubscribe = instance.on('server-ready', (port, url) => {
-          if (mounted) setPreviewUrl(url);
+        const setUrl = (url) => {
+          if (mounted && url) {
+            resolvedRef.current = true;
+            setPreviewUrl(url);
+          }
+        };
+        unsubServerReady = instance.on('server-ready', (port, url) => setUrl(url));
+        unsubPort = instance.on('port', (port, type, url) => {
+          if (type === 'open' && url) setUrl(url);
         });
 
         instance.on('error', (err) => {
           if (mounted) {
+            resolvedRef.current = true;
             setErrorMessage(err?.message || 'WebContainer error');
             setStatus('error');
           }
         });
 
+        setLoadingStep(LOADING_STEPS.mount);
         await instance.mount(DEFAULT_PROJECT);
         if (!mounted) return;
 
+        setLoadingStep(LOADING_STEPS.install);
         const installProcess = await instance.spawn('npm', ['install']);
         const installExitCode = await installProcess.exit;
         if (!mounted) return;
         if (installExitCode !== 0) {
-          setErrorMessage('npm install failed');
+          resolvedRef.current = true;
+          setErrorMessage('npm install failed. Try refreshing.');
           setStatus('error');
           return;
         }
 
+        setLoadingStep(LOADING_STEPS.dev);
         await instance.spawn('npm', ['run', 'dev']);
-        if (mounted && !previewUrl) setStatus('ready'); // server-ready may fire after
+        if (mounted && status === 'loading' && !previewUrl) setStatus('ready');
       } catch (err) {
         if (mounted) {
-          const msg = err?.message || String(err);
-          setErrorMessage(msg);
+          resolvedRef.current = true;
+          setErrorMessage(err?.message || String(err));
           setStatus('error');
         }
       }
@@ -127,7 +159,9 @@ export default function Sandbox() {
     start();
     return () => {
       mounted = false;
-      unsubscribe();
+      if (timeoutId) clearTimeout(timeoutId);
+      unsubServerReady();
+      unsubPort();
     };
   }, []);
 
@@ -154,11 +188,11 @@ export default function Sandbox() {
         {status === 'loading' && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-stone-500">
             <Loader2 className="w-10 h-10 animate-spin text-amber-500" />
-            <p className="font-medium">Booting WebContainer and starting dev server…</p>
-            <p className="text-sm">This may take a moment.</p>
+            <p className="font-medium">{loadingStep}</p>
+            <p className="text-sm">This may take a minute or two on first load.</p>
           </div>
         )}
-        {status === 'unsupported' && (
+        {status === 'fallback' && (
           <div className="flex-1 flex flex-col items-center justify-center gap-6 text-stone-600 max-w-md mx-auto text-center px-4">
             <Globe className="w-14 h-14 text-amber-500" />
             <div className="space-y-2">
